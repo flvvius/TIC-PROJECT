@@ -1,7 +1,7 @@
 <template>
-  <v-container class="login-page" max-width="400px">
+  <v-container class="signin-page" max-width="400px">
     <v-card>
-      <v-card-title>Login</v-card-title>
+      <v-card-title>Sign In</v-card-title>
       <v-card-text>
         <v-form @submit.prevent="handleLogin">
           <v-text-field label="Email" v-model="email" type="email" required />
@@ -11,7 +11,7 @@
             type="password"
             required
           />
-          <v-btn type="submit" color="primary">Login</v-btn>
+          <v-btn type="submit" color="primary">Sign In</v-btn>
         </v-form>
         <div v-if="error" class="error-message">{{ error }}</div>
       </v-card-text>

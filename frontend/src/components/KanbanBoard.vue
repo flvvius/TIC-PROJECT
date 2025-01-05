@@ -17,20 +17,22 @@
           </v-card-title>
 
           <v-card-text>
-            <v-list>
-              <draggable
-                v-model="tasksByColumn[column.id]"
-                group="tasks"
-                @end="onDragEnd"
-              >
-                <v-list-item
-                  v-for="task in tasksByColumn[column.id]"
-                  :key="task.id"
-                >
-                  <v-list-item-title>{{ task.title }}</v-list-item-title>
+            <draggable
+              :list="tasksByColumn[column.id]"
+              item-key="id"
+              group="tasks"
+              :data-column-id="column.id"
+              @change="(evt) => onDragChange(evt, column.id)"
+              @end="onDragEnd"
+            >
+              <template #item="{ element }">
+                <v-list-item>
+                  <v-list-item-title>
+                    {{ element.title }}
+                  </v-list-item-title>
                 </v-list-item>
-              </draggable>
-            </v-list>
+              </template>
+            </draggable>
           </v-card-text>
         </v-card>
       </v-col>
@@ -57,36 +59,33 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
-import draggable from "vuedraggable/src/vuedraggable";
-import { db } from "../firebase";
-
+import draggable from "vuedraggable";
 import {
   collection,
   doc,
   getDocs,
-  orderBy,
-  query,
+  setDoc,
+  deleteDoc,
   updateDoc,
-  addDoc,
   serverTimestamp,
+  query,
+  orderBy,
 } from "firebase/firestore";
+import { db } from "@/firebase";
 
 const columns = ref([]);
 const tasksByColumn = ref({});
-
-const boardId = "1";
-
+const boardId = "1"; // de luat din baza de date
 const isDialogOpen = ref(false);
 const newTaskTitle = ref("");
 const activeColumnId = ref(null);
 
 onMounted(async () => {
-  const columnsQuery = query(
-    collection(db, "boards", boardId, "columns"),
-    orderBy("order")
-  );
-  const columnsSnap = await getDocs(columnsQuery);
-  columns.value = columnsSnap.docs.map((d) => ({
+  const colRef = collection(db, "boards", boardId, "columns");
+  const q = query(colRef, orderBy("order"));
+  const snap = await getDocs(q);
+
+  columns.value = snap.docs.map((d) => ({
     id: d.id,
     ...d.data(),
   }));
@@ -98,27 +97,34 @@ onMounted(async () => {
     tasksByColumn.value[col.id] = tasksSnap.docs.map((d) => ({
       id: d.id,
       ...d.data(),
+      columnId: col.id,
     }));
   }
 });
 
-const openNewTaskDialog = (columnId) => {
+function openNewTaskDialog(columnId) {
   activeColumnId.value = columnId;
   isDialogOpen.value = true;
-};
+}
 
-const closeDialog = () => {
+function closeDialog() {
   isDialogOpen.value = false;
   newTaskTitle.value = "";
   activeColumnId.value = null;
-};
+}
 
-const createTask = async () => {
-  if (!newTaskTitle.value.trim()) return;
-  if (!activeColumnId.value) return;
+async function createTask() {
+  if (!newTaskTitle.value.trim() || !activeColumnId.value) return;
+
+  const task = {
+    title: newTaskTitle.value,
+    columnId: activeColumnId.value,
+    createdAt: serverTimestamp(),
+    order: tasksByColumn.value[activeColumnId.value]?.length || 0,
+  };
 
   try {
-    await addDoc(
+    const taskRef = doc(
       collection(
         db,
         "boards",
@@ -126,13 +132,9 @@ const createTask = async () => {
         "columns",
         activeColumnId.value,
         "tasks"
-      ),
-      {
-        title: newTaskTitle.value,
-        createdAt: serverTimestamp(),
-        order: tasksByColumn.value[activeColumnId.value]?.length || 0,
-      }
+      )
     );
+    await setDoc(taskRef, task);
 
     const tasksSnap = await getDocs(
       collection(
@@ -150,27 +152,117 @@ const createTask = async () => {
     }));
 
     closeDialog();
-  } catch (err) {
-    console.error("Error creating task:", err);
+  } catch (e) {
+    console.error("Error creating task:", e.message);
   }
-};
+}
 
-const onDragEnd = async () => {
-  for (const [columnId, tasksList] of Object.entries(tasksByColumn.value)) {
-    await Promise.all(
-      tasksList.map((task, idx) => {
-        const taskRef = doc(
+async function onDragChange(evt, columnId) {
+  console.log("onDragChange fired:", evt);
+  console.log("Target column ID:", columnId);
+
+  if (!evt.added) {
+    console.warn("No task added during drag");
+    return;
+  }
+
+  const { element: addedTask, newIndex } = evt.added;
+
+  const oldColumnId = addedTask.columnId;
+  if (oldColumnId && oldColumnId !== columnId) {
+    try {
+      await deleteDoc(
+        doc(
           db,
           "boards",
           boardId,
           "columns",
-          columnId,
+          oldColumnId,
           "tasks",
-          task.id
-        );
-        return updateDoc(taskRef, { order: idx });
+          addedTask.id
+        )
+      );
+    } catch (e) {
+      console.error(
+        `Error removing task ${addedTask.id} from '${oldColumnId}':`,
+        e.message
+      );
+    }
+  }
+
+  addedTask.columnId = columnId;
+  try {
+    await setDoc(
+      doc(db, "boards", boardId, "columns", columnId, "tasks", addedTask.id),
+      {
+        title: addedTask.title,
+        columnId: columnId,
+        createdAt: addedTask.createdAt || serverTimestamp(),
+        order: newIndex,
+      }
+    );
+  } catch (e) {
+    console.error(
+      `Error adding task ${addedTask.id} to '${columnId}':`,
+      e.message
+    );
+  }
+}
+
+async function onDragEnd() {
+  console.log("onDragEnd fired");
+
+  for (const [columnId, tasks] of Object.entries(tasksByColumn.value)) {
+    console.log(`Reordering tasks in column: ${columnId}`);
+
+    await Promise.all(
+      tasks.map(async (task, idx) => {
+        if (task.columnId === columnId) {
+          console.log(`Attempting to update task ${task.id} order to ${idx}`);
+          try {
+            const taskRef = doc(
+              db,
+              "boards",
+              boardId,
+              "columns",
+              columnId,
+              "tasks",
+              task.id
+            );
+
+            await updateDoc(taskRef, { order: idx });
+            console.log(`Task ${task.id} updated successfully to order ${idx}`);
+          } catch (e) {
+            console.error(
+              `Failed to update task ${task.id} in Firestore:`,
+              e.message
+            );
+          }
+        }
       })
     );
   }
-};
+
+  for (const col of columns.value) {
+    try {
+      const tasksSnap = await getDocs(
+        collection(db, "boards", boardId, "columns", col.id, "tasks")
+      );
+      tasksByColumn.value[col.id] = tasksSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+      console.log(
+        `Tasks in column '${col.id}' re-fetched from Firestore:`,
+        tasksByColumn.value[col.id]
+      );
+    } catch (e) {
+      console.error(`Failed to fetch tasks for column '${col.id}':`, e.message);
+    }
+  }
+
+  console.log("Reordering completed and tasks validated with Firestore.");
+}
 </script>
+
+<style scoped></style>

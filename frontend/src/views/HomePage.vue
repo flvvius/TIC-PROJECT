@@ -41,6 +41,12 @@
             placeholder="Enter a name for the board"
             required
           />
+
+          <v-text-field
+            label="Invite Members (comma-separated)"
+            v-model="inviteUsers"
+            placeholder="user1UID, user2UID"
+          />
         </v-card-text>
         <v-card-actions>
           <v-btn color="primary" @click="createBoard">Create</v-btn>
@@ -61,8 +67,14 @@ import {
   deleteDoc,
   doc,
   serverTimestamp,
+  query,
+  where,
 } from "firebase/firestore";
 import { db } from "@/firebase";
+
+import { getAuth } from "firebase/auth";
+const auth = getAuth();
+const currentUserUid = auth.currentUser?.uid || null;
 
 const router = useRouter();
 
@@ -70,17 +82,33 @@ const boards = ref([]);
 const isDialogOpen = ref(false);
 const newBoardName = ref("");
 
+const inviteUsers = ref("");
+
 onMounted(async () => {
   await fetchBoards();
 });
 
 async function fetchBoards() {
-  const boardsCollection = collection(db, "boards");
-  const snapshot = await getDocs(boardsCollection);
-  boards.value = snapshot.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
+  try {
+    if (!currentUserUid) {
+      console.warn("No current user. Cannot fetch boards.");
+      return;
+    }
+
+    const boardsColl = collection(db, "boards");
+    const qBoards = query(
+      boardsColl,
+      where("members", "array-contains", currentUserUid)
+    );
+    const snapshot = await getDocs(qBoards);
+
+    boards.value = snapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    }));
+  } catch (error) {
+    console.error("Error fetching boards:", error.message);
+  }
 }
 
 function openNewBoardDialog() {
@@ -90,14 +118,30 @@ function openNewBoardDialog() {
 function closeDialog() {
   isDialogOpen.value = false;
   newBoardName.value = "";
+  inviteUsers.value = "";
 }
 
 async function createBoard() {
   if (!newBoardName.value.trim()) return;
 
+  let invitedArray = [];
+  if (inviteUsers.value.trim()) {
+    invitedArray = inviteUsers.value
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item);
+  }
+
+  const members = [];
+  if (currentUserUid) {
+    members.push(currentUserUid);
+  }
+  members.push(...invitedArray);
+
   const board = {
     name: newBoardName.value,
     createdAt: serverTimestamp(),
+    members,
   };
 
   try {

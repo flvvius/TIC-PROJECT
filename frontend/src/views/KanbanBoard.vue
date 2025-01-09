@@ -1,6 +1,27 @@
 <template>
   <v-container fluid>
     <v-row>
+      <v-col>
+        <v-card>
+          <v-card-title>
+            Board Members
+            <v-spacer></v-spacer>
+            <v-btn icon color="primary" @click="inviteDialogOpen = true">
+              <v-icon>mdi-account-plus</v-icon>
+            </v-btn>
+          </v-card-title>
+          <v-card-text>
+            <v-list>
+              <v-list-item v-for="(member, idx) in boardMembers" :key="idx">
+                <v-list-item-title>{{ member }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <v-row>
       <v-col v-for="column in columns" :key="column.id">
         <v-card>
           <v-card-title>
@@ -45,6 +66,23 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-dialog v-model="inviteDialogOpen" max-width="500px">
+      <v-card>
+        <v-card-title>Invite New Members</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="inviteInput"
+            label="UIDs (comma-separated)"
+            placeholder="user1UID, user2UID"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn color="primary" @click="inviteMembers">Invite</v-btn>
+          <v-btn text @click="closeInviteDialog">Cancel</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -55,6 +93,7 @@ import Draggable from "vuedraggable";
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   addDoc,
@@ -62,11 +101,16 @@ import {
   serverTimestamp,
   query,
   orderBy,
+  arrayUnion,
 } from "firebase/firestore";
 import { db } from "@/firebase";
 
 const route = useRoute();
 const boardId = route.params.boardId;
+
+const boardMembers = ref([]);
+const inviteDialogOpen = ref(false);
+const inviteInput = ref("");
 
 const columns = ref([]);
 const tasksByColumn = ref({});
@@ -76,6 +120,15 @@ const activeColumnId = ref(null);
 
 onMounted(async () => {
   try {
+    const boardRef = doc(db, "boards", boardId);
+    const boardSnap = await getDoc(boardRef);
+    if (boardSnap.exists()) {
+      const boardData = boardSnap.data();
+      boardMembers.value = Array.isArray(boardData.members)
+        ? boardData.members
+        : [];
+    }
+
     const colRef = collection(db, "boards", boardId, "columns");
     const colSnap = await getDocs(query(colRef, orderBy("order")));
 
@@ -110,7 +163,6 @@ onMounted(async () => {
     tasksSnap.forEach((docSnap) => {
       const taskData = { id: docSnap.id, ...docSnap.data() };
       const colId = taskData.columnId;
-
       if (colId && tasksByColumn.value[colId]) {
         tasksByColumn.value[colId].push(taskData);
       }
@@ -125,6 +177,32 @@ onMounted(async () => {
     console.error("Error fetching board data:", error);
   }
 });
+
+async function inviteMembers() {
+  if (!inviteInput.value.trim()) return;
+
+  const newMembers = inviteInput.value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item);
+
+  try {
+    const boardRef = doc(db, "boards", boardId);
+    await updateDoc(boardRef, {
+      members: arrayUnion(...newMembers),
+    });
+    boardMembers.value.push(...newMembers);
+
+    closeInviteDialog();
+  } catch (error) {
+    console.error("Error inviting members:", error);
+  }
+}
+
+function closeInviteDialog() {
+  inviteDialogOpen.value = false;
+  inviteInput.value = "";
+}
 
 function openNewTaskDialog(columnId) {
   activeColumnId.value = columnId;
@@ -185,7 +263,6 @@ async function onDragEnd() {
   try {
     for (const tasks of Object.entries(tasksByColumn.value)) {
       if (!Array.isArray(tasks)) continue;
-
       await Promise.all(
         tasks.map((task, idx) => {
           task.order = idx;
@@ -200,3 +277,5 @@ async function onDragEnd() {
   }
 }
 </script>
+
+<style scoped></style>

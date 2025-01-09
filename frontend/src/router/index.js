@@ -3,6 +3,8 @@ import SignUp from "../views/SignUp.vue";
 import SignIn from "../views/SignIn.vue";
 import Home from "../views/HomePage.vue";
 import KanbanBoard from "../views/KanbanBoard.vue";
+import Profile from "../views/ProfilePage.vue";
+
 import { getAuth } from "firebase/auth";
 import { db } from "@/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -18,6 +20,7 @@ const routes = [
     meta: { requiresAuth: true },
     props: true,
   },
+  { path: "/profile", component: Profile, meta: { requiresAuth: true } },
 ];
 
 const router = createRouter({
@@ -26,7 +29,7 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to, from, next) => {
-  if (to.name === "KanbanBoard") {
+  if (to.meta.requiresAuth) {
     const auth = getAuth();
     const user = auth.currentUser;
 
@@ -34,34 +37,38 @@ router.beforeEach(async (to, from, next) => {
       return next("/signin");
     }
 
-    const boardId = to.params.boardId;
-    if (!boardId) {
-      return next("/");
-    }
-
-    try {
-      const boardRef = doc(db, "boards", boardId);
-      const boardSnap = await getDoc(boardRef);
-
-      if (!boardSnap.exists()) {
+    if (to.name === "KanbanBoard") {
+      const boardId = to.params.boardId;
+      if (!boardId) {
         return next("/");
       }
 
-      const boardData = boardSnap.data();
+      try {
+        const boardRef = doc(db, "boards", boardId);
+        const boardSnap = await getDoc(boardRef);
 
-      const members = boardData.members || [];
-      if (!Array.isArray(members) || !members.includes(user.uid)) {
+        if (!boardSnap.exists()) {
+          return next("/");
+        }
+
+        const boardData = boardSnap.data();
+        const members = boardData.members || [];
+
+        if (!Array.isArray(members) || !members.includes(user.uid)) {
+          return next("/");
+        }
+
+        return next();
+      } catch (error) {
+        console.error("Error checking board membership:", error);
         return next("/");
       }
-
-      return next();
-    } catch (error) {
-      console.error("Error checking board membership:", error);
-      return next("/");
     }
-  } else {
-    next();
+
+    return next();
   }
+
+  next();
 });
 
 export default router;

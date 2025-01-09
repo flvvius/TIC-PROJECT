@@ -14,6 +14,11 @@
           <v-btn type="submit" color="primary">Sign In</v-btn>
         </v-form>
         <div v-if="error" class="error-message">{{ error }}</div>
+
+        <v-divider class="my-4"></v-divider>
+        <v-btn color="secondary" @click="goToSignup">
+          Don’t have an account? Sign Up
+        </v-btn>
       </v-card-text>
     </v-card>
   </v-container>
@@ -38,10 +43,18 @@ const handleLogin = async () => {
     error.value = err.message;
   }
 };
+
+function goToSignup() {
+  router.push("/signup");
+}
 </script>
 
 <style scoped>
 .error-message {
   color: red;
+}
+.my-4 {
+  margin-top: 1rem !important;
+  margin-bottom: 1rem !important;
 }
 </style>

@@ -15,6 +15,11 @@
         </v-form>
         <div v-if="error" class="error-message">{{ error }}</div>
         <div v-if="message" class="success-message">{{ message }}</div>
+
+        <v-divider class="my-4"></v-divider>
+        <v-btn color="secondary" @click="goToSignIn">
+          Already have an account? Sign In
+        </v-btn>
       </v-card-text>
     </v-card>
   </v-container>
@@ -24,6 +29,7 @@
 import { ref } from "vue";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
+import router from "../router/index";
 
 const email = ref("");
 const password = ref("");
@@ -41,6 +47,10 @@ const handleSignUp = async () => {
     error.value = err.message;
   }
 };
+
+function goToSignIn() {
+  router.push("/signin");
+}
 </script>
 
 <style scoped>
@@ -49,5 +59,9 @@ const handleSignUp = async () => {
 }
 .success-message {
   color: green;
+}
+.my-4 {
+  margin-top: 1rem !important;
+  margin-bottom: 1rem !important;
 }
 </style>

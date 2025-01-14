@@ -4,12 +4,19 @@
       <v-card-title>Sign In</v-card-title>
       <v-card-text>
         <v-form @submit.prevent="handleLogin">
-          <v-text-field label="Email" v-model="email" type="email" required />
+          <v-text-field
+            label="Email"
+            v-model="email"
+            type="email"
+            required
+            autocomplete="email"
+          />
           <v-text-field
             label="Password"
             v-model="password"
             type="password"
             required
+            autocomplete="current-password"
           />
           <v-btn type="submit" color="primary">Sign In</v-btn>
         </v-form>
@@ -26,9 +33,10 @@
 
 <script setup>
 import { ref } from "vue";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebase";
-import router from "../router/index";
+import router from "../router";
+import { loginUser } from "../api";
+import Cookies from "js-cookie";
+import { updateAuthState } from "@/store/auth";
 
 const email = ref("");
 const password = ref("");
@@ -36,25 +44,33 @@ const error = ref(null);
 
 const handleLogin = async () => {
   error.value = null;
+
   try {
-    await signInWithEmailAndPassword(auth, email.value, password.value);
+    const response = await loginUser(email.value, password.value);
+    console.log("Login response:", response);
+
+    const token = Cookies.get("token");
+    if (!token) {
+      throw new Error("Token not set in cookies");
+    }
+
+    console.log("Token set in cookie:", token);
+    updateAuthState();
     router.push("/");
   } catch (err) {
-    error.value = err.message;
+    console.error("Login error:", err.message);
+    error.value = err.response?.data?.error || err.message;
   }
 };
-
-function goToSignup() {
-  router.push("/signup");
-}
 </script>
+
 
 <style scoped>
 .error-message {
   color: red;
 }
 .my-4 {
-  margin-top: 1rem !important;
-  margin-bottom: 1rem !important;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
 }
 </style>

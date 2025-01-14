@@ -4,23 +4,34 @@ import router from "./router";
 import store from "./store";
 import vuetify from "./plugins/vuetify";
 import { loadFonts } from "./plugins/webfontloader";
-
-import { auth } from "@/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import Cookies from "js-cookie";
+import { updateAuthState } from "@/store/auth";
 
 loadFonts();
 
 let app = null;
 
-onAuthStateChanged(auth, (user) => {
-  if (!app) {
-    app = createApp(App);
-    app.use(router).use(store).use(vuetify).mount("#app");
-  }
-
-  if (user) {
-    console.log("User is logged in:", user.email);
+function checkAuth() {
+  const token = Cookies.get("token");
+  if (token) {
+    try {
+      const decoded = JSON.parse(atob(token.split(".")[1]));
+      console.log("Decoded token:", decoded);
+      updateAuthState();
+      return decoded.uid;
+    } catch (error) {
+      console.error("Error decoding token:", error);
+      return null;
+    }
   } else {
-    console.log("No user is logged in.");
+    console.log("No valid token found, user is not authenticated.");
+    updateAuthState();
+    return null;
   }
-});
+}
+
+if (!app) {
+  checkAuth();
+  app = createApp(App);
+  app.use(router).use(store).use(vuetify).mount("#app");
+}

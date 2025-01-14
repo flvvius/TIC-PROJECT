@@ -4,10 +4,7 @@ import SignIn from "../views/SignIn.vue";
 import Home from "../views/HomePage.vue";
 import KanbanBoard from "../views/KanbanBoard.vue";
 import Profile from "../views/ProfilePage.vue";
-
-import { getAuth } from "firebase/auth";
-import { db } from "@/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import axios from "axios";
 
 const routes = [
   { path: "/", component: Home, name: "Home", meta: { requiresAuth: true } },
@@ -28,39 +25,50 @@ const router = createRouter({
   routes,
 });
 
+async function isAuthenticated() {
+  try {
+    const response = await axios.get("http://localhost:8081/profile", {
+      withCredentials: true,
+    });
+    return !!response.data;
+  } catch (error) {
+    return false;
+  }
+}
+
 router.beforeEach(async (to, from, next) => {
   if (to.meta.requiresAuth) {
-    const auth = getAuth();
-    const user = auth.currentUser;
+    const isAuth = await isAuthenticated();
 
-    if (!user) {
+    if (!isAuth) {
+      console.warn("User not authenticated. Redirecting to Sign In.");
       return next("/signin");
     }
 
     if (to.name === "KanbanBoard") {
       const boardId = to.params.boardId;
       if (!boardId) {
+        console.warn("Invalid board ID. Redirecting to Home.");
         return next("/");
       }
 
       try {
-        const boardRef = doc(db, "boards", boardId);
-        const boardSnap = await getDoc(boardRef);
+        const response = await axios.get(
+          `http://localhost:8081/boards/${boardId}`,
+          {
+            withCredentials: true,
+          }
+        );
 
-        if (!boardSnap.exists()) {
-          return next("/");
-        }
-
-        const boardData = boardSnap.data();
-        const members = boardData.members || [];
-
-        if (!Array.isArray(members) || !members.includes(user.uid)) {
+        const boardData = response.data;
+        if (!boardData || !boardData.members.includes(response.data.uid)) {
+          console.warn("User not a member of the board. Redirecting to Home.");
           return next("/");
         }
 
         return next();
       } catch (error) {
-        console.error("Error checking board membership:", error);
+        console.error("Error verifying board membership:", error);
         return next("/");
       }
     }

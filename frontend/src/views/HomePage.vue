@@ -71,20 +71,33 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/firebase";
-
-import { getAuth } from "firebase/auth";
-const auth = getAuth();
-const currentUserUid = auth.currentUser?.uid || null;
+import Cookies from "js-cookie";
 
 const router = useRouter();
+const token = Cookies.get("token");
+const currentUserUid = token ? JSON.parse(atob(token.split(".")[1])).uid : null;
+if (!currentUserUid) {
+  console.warn("No user UID found. Please log in.");
+}
 
 const boards = ref([]);
 const isDialogOpen = ref(false);
 const newBoardName = ref("");
-
 const inviteUsers = ref("");
 
 onMounted(async () => {
+  const token = Cookies.get("token");
+  const currentUserUid = token
+    ? JSON.parse(atob(token.split(".")[1])).uid
+    : null;
+
+  if (!currentUserUid) {
+    console.warn("No user UID found. Please log in.");
+    return;
+  }
+
+  console.log("Current User UID:", currentUserUid);
+
   await fetchBoards();
 });
 
@@ -122,7 +135,10 @@ function closeDialog() {
 }
 
 async function createBoard() {
-  if (!newBoardName.value.trim()) return;
+  if (!newBoardName.value.trim() || !currentUserUid) {
+    console.error("Missing board name or user UID");
+    return;
+  }
 
   let invitedArray = [];
   if (inviteUsers.value.trim()) {
@@ -132,11 +148,7 @@ async function createBoard() {
       .filter((item) => item);
   }
 
-  const members = [];
-  if (currentUserUid) {
-    members.push(currentUserUid);
-  }
-  members.push(...invitedArray);
+  const members = [currentUserUid, ...invitedArray];
 
   const board = {
     name: newBoardName.value,

@@ -62,6 +62,10 @@ const handleLogin = async () => {
     error.value = err.response?.data?.error || err.message;
   }
 };
+
+function goToSignup() {
+  router.push("/signup");
+}
 </script>
 
 

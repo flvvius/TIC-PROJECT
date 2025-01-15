@@ -90,20 +90,16 @@
 import { ref, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import Draggable from "vuedraggable";
+
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  addDoc,
-  updateDoc,
-  serverTimestamp,
-  query,
-  orderBy,
-  arrayUnion,
-} from "firebase/firestore";
-import { db } from "@/firebase";
+  getBoard,
+  getColumns,
+  createOrUpdateColumn,
+  getTasks,
+  createTask as createTaskAPI,
+  updateTask as updateTaskAPI,
+  inviteMembers as inviteMembersAPI,
+} from "@/api";
 
 const route = useRoute();
 const boardId = route.params.boardId;
@@ -120,51 +116,37 @@ const activeColumnId = ref(null);
 
 onMounted(async () => {
   try {
-    const boardRef = doc(db, "boards", boardId);
-    const boardSnap = await getDoc(boardRef);
-    if (boardSnap.exists()) {
-      const boardData = boardSnap.data();
-      boardMembers.value = Array.isArray(boardData.members)
-        ? boardData.members
-        : [];
-    }
+    const boardData = await getBoard(boardId);
+    boardMembers.value = Array.isArray(boardData.members)
+      ? boardData.members
+      : [];
 
-    const colRef = collection(db, "boards", boardId, "columns");
-    const colSnap = await getDocs(query(colRef, orderBy("order")));
-
-    if (colSnap.empty) {
-      const defaultCols = [
+    let columnsData = await getColumns(boardId);
+    if (!columnsData || !columnsData.length) {
+      columnsData = [
         { id: "todo", title: "To Do", order: 0 },
         { id: "in-progress", title: "In Progress", order: 1 },
         { id: "done", title: "Done", order: 2 },
       ];
-      for (const col of defaultCols) {
-        await setDoc(doc(db, "boards", boardId, "columns", col.id), {
+
+      for (const col of columnsData) {
+        await createOrUpdateColumn(boardId, col.id, {
           title: col.title,
           order: col.order,
         });
       }
-      columns.value = defaultCols;
-    } else {
-      columns.value = colSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
     }
+    columns.value = columnsData;
 
     tasksByColumn.value = columns.value.reduce((acc, col) => {
       acc[col.id] = [];
       return acc;
     }, {});
 
-    const tasksRef = collection(db, "boards", boardId, "tasks");
-    const tasksSnap = await getDocs(query(tasksRef, orderBy("order")));
-
-    tasksSnap.forEach((docSnap) => {
-      const taskData = { id: docSnap.id, ...docSnap.data() };
-      const colId = taskData.columnId;
-      if (colId && tasksByColumn.value[colId]) {
-        tasksByColumn.value[colId].push(taskData);
+    const tasksData = await getTasks(boardId);
+    tasksData.forEach((task) => {
+      if (task.columnId && tasksByColumn.value[task.columnId]) {
+        tasksByColumn.value[task.columnId].push(task);
       }
     });
 
@@ -184,15 +166,11 @@ async function inviteMembers() {
   const newMembers = inviteInput.value
     .split(",")
     .map((item) => item.trim())
-    .filter((item) => item);
+    .filter(Boolean);
 
   try {
-    const boardRef = doc(db, "boards", boardId);
-    await updateDoc(boardRef, {
-      members: arrayUnion(...newMembers),
-    });
+    await inviteMembersAPI(boardId, newMembers);
     boardMembers.value.push(...newMembers);
-
     closeInviteDialog();
   } catch (error) {
     console.error("Error inviting members:", error);
@@ -218,23 +196,16 @@ function closeDialog() {
 async function createTask() {
   if (!newTaskTitle.value.trim() || !activeColumnId.value) return;
 
-  const newOrder = tasksByColumn.value[activeColumnId.value].length || 0;
+  const newOrder = tasksByColumn.value[activeColumnId.value].length;
   const taskData = {
     title: newTaskTitle.value,
     columnId: activeColumnId.value,
-    createdAt: serverTimestamp(),
     order: newOrder,
   };
 
   try {
-    const taskRef = await addDoc(
-      collection(db, "boards", boardId, "tasks"),
-      taskData
-    );
-    tasksByColumn.value[activeColumnId.value].push({
-      id: taskRef.id,
-      ...taskData,
-    });
+    const createdTask = await createTaskAPI(boardId, taskData);
+    tasksByColumn.value[activeColumnId.value].push(createdTask);
     closeDialog();
   } catch (error) {
     console.error("Error creating task:", error);
@@ -248,9 +219,7 @@ async function onDragChange(evt, newColumnId) {
 
     if (oldColumnId && oldColumnId !== newColumnId) {
       try {
-        await updateDoc(doc(db, "boards", boardId, "tasks", task.id), {
-          columnId: newColumnId,
-        });
+        await updateTaskAPI(boardId, task.id, { columnId: newColumnId });
         task.columnId = newColumnId;
       } catch (error) {
         console.error("Error moving task to new column:", error);
@@ -262,13 +231,10 @@ async function onDragChange(evt, newColumnId) {
 async function onDragEnd() {
   try {
     for (const tasks of Object.entries(tasksByColumn.value)) {
-      if (!Array.isArray(tasks)) continue;
       await Promise.all(
         tasks.map((task, idx) => {
           task.order = idx;
-          return updateDoc(doc(db, "boards", boardId, "tasks", task.id), {
-            order: idx,
-          });
+          return updateTaskAPI(boardId, task.id, { order: idx });
         })
       );
     }

@@ -31,7 +31,7 @@ const usersCollection = db.collection("users");
 function setTokenCookie(res, payload) {
   const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1h" });
   res.cookie("token", token, {
-    httpOnly: false, // am stat 3 ore la mizeria asta
+    httpOnly: false,
     secure: false,
     sameSite: "lax",
     domain: "localhost",
@@ -133,6 +133,197 @@ app.get("/profile", authMiddleware, (req, res) => {
     return res.json({ user: { uid, email } });
   } catch (error) {
     return res.status(500).json({ error: "Failed to fetch profile" });
+  }
+});
+
+app.get("/api/boards", authMiddleware, async (req, res) => {
+  try {
+    const { uid } = req.user;
+    const boardsSnap = await db
+      .collection("boards")
+      .where("members", "array-contains", uid)
+      .get();
+
+    const boards = boardsSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.json(boards);
+  } catch (error) {
+    console.error("Error fetching boards:", error);
+    return res.status(500).json({ error: "Failed to fetch boards." });
+  }
+});
+
+app.post("/api/boards", authMiddleware, async (req, res) => {
+  try {
+    const { uid } = req.user;
+    const { name, invitedUsers } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "Board name is required." });
+    }
+    const members = [uid, ...(invitedUsers || [])];
+
+    const newBoardData = {
+      name,
+      members,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    const newRef = await db.collection("boards").add(newBoardData);
+    return res.status(201).json({ id: newRef.id, ...newBoardData });
+  } catch (error) {
+    console.error("Error creating board:", error);
+    return res.status(500).json({ error: "Failed to create board." });
+  }
+});
+
+app.get("/api/boards/:boardId", authMiddleware, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const boardSnap = await db.collection("boards").doc(boardId).get();
+
+    if (!boardSnap.exists) {
+      return res.status(404).json({ error: "Board not found." });
+    }
+
+    const boardData = boardSnap.data();
+    res.json(boardData);
+  } catch (error) {
+    console.error("Error fetching board:", error);
+    res.status(500).json({ error: "Failed to fetch board." });
+  }
+});
+
+app.delete("/api/boards/:boardId", authMiddleware, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    await db.collection("boards").doc(boardId).delete();
+    res.json({ message: `Board ${boardId} deleted.` });
+  } catch (error) {
+    console.error("Error deleting board:", error);
+    res.status(500).json({ error: "Failed to delete board." });
+  }
+});
+
+app.get("/api/boards/:boardId/columns", authMiddleware, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const colRef = db.collection("boards").doc(boardId).collection("columns");
+    const colSnap = await colRef.orderBy("order").get();
+
+    const columns = colSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.json(columns);
+  } catch (error) {
+    console.error("Error fetching columns:", error);
+    res.status(500).json({ error: "Failed to fetch columns." });
+  }
+});
+
+app.post("/api/boards/:boardId/columns/:colId", authMiddleware, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const colId = req.params.colId;
+    const { title, order } = req.body;
+
+    const colRef = db
+      .collection("boards")
+      .doc(boardId)
+      .collection("columns")
+      .doc(colId);
+
+    await colRef.set({ title, order }, { merge: true });
+    res.status(201).json({ message: `Column ${colId} created/updated.` });
+  } catch (error) {
+    console.error("Error creating/updating column:", error);
+    res.status(500).json({ error: "Failed to create/update column." });
+  }
+});
+
+app.get("/api/boards/:boardId/tasks", authMiddleware, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const tasksRef = db.collection("boards").doc(boardId).collection("tasks");
+    const tasksSnap = await tasksRef.orderBy("order").get();
+
+    const tasks = tasksSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    res.json(tasks);
+  } catch (error) {
+    console.error("Error fetching tasks:", error);
+    res.status(500).json({ error: "Failed to fetch tasks." });
+  }
+});
+
+app.post("/api/boards/:boardId/tasks", authMiddleware, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const { title, columnId, order } = req.body;
+
+    const tasksRef = db.collection("boards").doc(boardId).collection("tasks");
+    const newTaskRef = await tasksRef.add({
+      title,
+      columnId,
+      order,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.status(201).json({
+      id: newTaskRef.id,
+      title,
+      columnId,
+      order,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error creating task:", error);
+    res.status(500).json({ error: "Failed to create task." });
+  }
+});
+
+app.patch("/api/boards/:boardId/tasks/:taskId", authMiddleware, async (req, res) => {
+  try {
+    const { boardId, taskId } = req.params;
+    const updates = req.body;
+
+    const taskRef = db
+      .collection("boards")
+      .doc(boardId)
+      .collection("tasks")
+      .doc(taskId);
+
+    await taskRef.update(updates);
+    res.json({ message: `Task ${taskId} updated.` });
+  } catch (error) {
+    console.error("Error updating task:", error);
+    res.status(500).json({ error: "Failed to update task." });
+  }
+});
+
+app.post("/api/boards/:boardId/invite", authMiddleware, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const { newMembers } = req.body;
+
+    if (!Array.isArray(newMembers) || newMembers.length === 0) {
+      return res.status(400).json({ error: "No members to add." });
+    }
+
+    const boardRef = db.collection("boards").doc(boardId);
+    await boardRef.update({
+      members: admin.firestore.FieldValue.arrayUnion(...newMembers),
+    });
+
+    res.json({ message: "Members invited successfully." });
+  } catch (error) {
+    console.error("Error inviting members:", error);
+    res.status(500).json({ error: "Failed to invite members." });
   }
 });
 

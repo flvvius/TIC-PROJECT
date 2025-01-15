@@ -1,193 +1,149 @@
 <template>
-  <v-container>
-    <v-row justify="center">
-      <v-col cols="12" md="8" lg="6">
+    <v-container>
+      <v-row justify="center">
+        <v-col cols="12" md="8" lg="6">
+          <v-card>
+            <v-card-title class="text-h5">
+              Kanban Boards
+              <v-spacer></v-spacer>
+              <v-btn color="primary" icon @click="openNewBoardDialog">
+                <v-icon>mdi-plus</v-icon>
+              </v-btn>
+            </v-card-title>
+  
+            <v-card-text>
+              <v-list>
+                <v-list-item
+                  v-for="board in boards"
+                  :key="board.id"
+                  @click="enterBoard(board.id)"
+                  class="board-item"
+                >
+                  <v-list-item-title>{{ board.name }}</v-list-item-title>
+                  <v-spacer></v-spacer>
+                  <v-btn text color="primary" @click.stop="deleteBoard(board.id)">
+                    <v-icon>mdi-delete</v-icon>
+                  </v-btn>
+                </v-list-item>
+              </v-list>
+            </v-card-text>
+          </v-card>
+        </v-col>
+      </v-row>
+  
+      <v-dialog v-model="isDialogOpen" max-width="500px">
         <v-card>
-          <v-card-title class="text-h5">
-            Kanban Boards
-            <v-spacer></v-spacer>
-            <v-btn color="primary" icon @click="openNewBoardDialog">
-              <v-icon>mdi-plus</v-icon>
-            </v-btn>
-          </v-card-title>
-
+          <v-card-title>Add New Board</v-card-title>
           <v-card-text>
-            <v-list>
-              <v-list-item
-                v-for="board in boards"
-                :key="board.id"
-                @click="enterBoard(board.id)"
-                class="board-item"
-              >
-                <v-list-item-title>{{ board.name }}</v-list-item-title>
-                <v-spacer></v-spacer>
-                <v-btn text color="primary" @click.stop="deleteBoard(board.id)">
-                  <v-icon>mdi-delete</v-icon>
-                </v-btn>
-              </v-list-item>
-            </v-list>
+            <v-text-field
+              label="Board Name"
+              v-model="newBoardName"
+              placeholder="Enter a name for the board"
+              required
+            />
+  
+            <v-text-field
+              label="Invite Members (comma-separated)"
+              v-model="inviteUsers"
+              placeholder="user1UID, user2UID"
+            />
           </v-card-text>
+          <v-card-actions>
+            <v-btn color="primary" @click="createBoard">Create</v-btn>
+            <v-btn text @click="closeDialog">Cancel</v-btn>
+          </v-card-actions>
         </v-card>
-      </v-col>
-    </v-row>
-
-    <v-dialog v-model="isDialogOpen" max-width="500px">
-      <v-card>
-        <v-card-title>Add New Board</v-card-title>
-        <v-card-text>
-          <v-text-field
-            label="Board Name"
-            v-model="newBoardName"
-            placeholder="Enter a name for the board"
-            required
-          />
-
-          <v-text-field
-            label="Invite Members (comma-separated)"
-            v-model="inviteUsers"
-            placeholder="user1UID, user2UID"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-btn color="primary" @click="createBoard">Create</v-btn>
-          <v-btn text @click="closeDialog">Cancel</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-  </v-container>
-</template>
-
-<script setup>
-import { ref, onMounted } from "vue";
-import { useRouter } from "vue-router";
-import {
-  collection,
-  getDocs,
-  addDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  query,
-  where,
-} from "firebase/firestore";
-import { db } from "@/firebase";
-import Cookies from "js-cookie";
-
-const router = useRouter();
-const token = Cookies.get("token");
-const currentUserUid = token ? JSON.parse(atob(token.split(".")[1])).uid : null;
-if (!currentUserUid) {
-  console.warn("No user UID found. Please log in.");
-}
-
-const boards = ref([]);
-const isDialogOpen = ref(false);
-const newBoardName = ref("");
-const inviteUsers = ref("");
-
-onMounted(async () => {
-  const token = Cookies.get("token");
-  const currentUserUid = token
-    ? JSON.parse(atob(token.split(".")[1])).uid
-    : null;
-
-  if (!currentUserUid) {
-    console.warn("No user UID found. Please log in.");
-    return;
+      </v-dialog>
+    </v-container>
+  </template>
+  
+  <script setup>
+  import { ref, onMounted } from "vue";
+  import { useRouter } from "vue-router";
+  
+  import {
+    getBoards,
+    createBoard as createBoardAPI,
+    deleteBoard as deleteBoardAPI,
+  } from "../api";
+  
+  const router = useRouter();
+  const boards = ref([]);
+  const isDialogOpen = ref(false);
+  const newBoardName = ref("");
+  const inviteUsers = ref("");
+  
+  onMounted(() => {
+    fetchBoards();
+  });
+  
+  async function fetchBoards() {
+    try {
+      const data = await getBoards();
+      boards.value = data;
+    } catch (error) {
+      console.error("Error fetching boards:", error);
+    }
   }
-
-  console.log("Current User UID:", currentUserUid);
-
-  await fetchBoards();
-});
-
-async function fetchBoards() {
-  try {
-    if (!currentUserUid) {
-      console.warn("No current user. Cannot fetch boards.");
+  
+  function openNewBoardDialog() {
+    isDialogOpen.value = true;
+  }
+  
+  function closeDialog() {
+    isDialogOpen.value = false;
+    newBoardName.value = "";
+    inviteUsers.value = "";
+  }
+  
+  async function createBoard() {
+    if (!newBoardName.value.trim()) {
+      console.error("Board name is required");
       return;
     }
-
-    const boardsColl = collection(db, "boards");
-    const qBoards = query(
-      boardsColl,
-      where("members", "array-contains", currentUserUid)
-    );
-    const snapshot = await getDocs(qBoards);
-
-    boards.value = snapshot.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
-  } catch (error) {
-    console.error("Error fetching boards:", error.message);
+  
+    let invitedArray = [];
+    if (inviteUsers.value.trim()) {
+      invitedArray = inviteUsers.value
+        .split(",")
+        .map(item => item.trim())
+        .filter(Boolean);
+    }
+  
+    try {
+      await createBoardAPI({
+        name: newBoardName.value,
+        invitedUsers: invitedArray,
+      });
+      await fetchBoards();
+      closeDialog();
+    } catch (error) {
+      console.error("Error creating board:", error);
+    }
   }
-}
-
-function openNewBoardDialog() {
-  isDialogOpen.value = true;
-}
-
-function closeDialog() {
-  isDialogOpen.value = false;
-  newBoardName.value = "";
-  inviteUsers.value = "";
-}
-
-async function createBoard() {
-  if (!newBoardName.value.trim() || !currentUserUid) {
-    console.error("Missing board name or user UID");
-    return;
+  
+  function enterBoard(boardId) {
+    router.push(`/kanban/${boardId}`);
   }
-
-  let invitedArray = [];
-  if (inviteUsers.value.trim()) {
-    invitedArray = inviteUsers.value
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item);
+  
+  async function deleteBoard(boardId) {
+    try {
+      await deleteBoardAPI(boardId);
+      await fetchBoards();
+    } catch (error) {
+      console.error(`Error deleting board ${boardId}:`, error);
+    }
   }
-
-  const members = [currentUserUid, ...invitedArray];
-
-  const board = {
-    name: newBoardName.value,
-    createdAt: serverTimestamp(),
-    members,
-  };
-
-  try {
-    await addDoc(collection(db, "boards"), board);
-    console.log("Board created:", board);
-    await fetchBoards();
-    closeDialog();
-  } catch (e) {
-    console.error("Error creating board:", e.message);
+  </script>
+  
+  <style scoped>
+  .board-item {
+    cursor: pointer;
+    transition: background-color 0.3s;
   }
-}
-
-async function enterBoard(boardId) {
-  router.push(`/kanban/${boardId}`);
-}
-
-async function deleteBoard(boardId) {
-  try {
-    await deleteDoc(doc(db, "boards", boardId));
-    console.log(`Board ${boardId} deleted`);
-    await fetchBoards();
-  } catch (e) {
-    console.error(`Error deleting board ${boardId}:`, e.message);
+  
+  .board-item:hover {
+    background-color: #f5f5f5;
   }
-}
-</script>
-
-<style scoped>
-.board-item {
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.board-item:hover {
-  background-color: #f5f5f5;
-}
-</style>
+  </style>
+  

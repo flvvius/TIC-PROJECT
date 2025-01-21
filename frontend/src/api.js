@@ -26,11 +26,6 @@ export const logoutUser = async () => {
   return response.data;
 };
 
-export const getProfile = async () => {
-  const response = await api.get("/profile");
-  return response.data;
-};
-
 export const getBoards = async () => {
   const response = await api.get("/api/boards");
   return response.data;
@@ -80,6 +75,32 @@ export const inviteMembers = async (boardId, newMembers) => {
   const response = await api.post(`/api/boards/${boardId}/invite`, { newMembers });
   return response.data;
 };
+
+
+export const getProfile = async () => {
+    const response = await api.get("/profile");
+    return response.data;
+};
+  
+export const updateProfile = async (data) => {
+    const response = await api.post("/api/profile/updateName", data);
+    return response.data;
+};
+  
+export const uploadProfilePicture = async (formData) => {
+    try {
+      const response = await api.post("/api/profile/uploadPicture", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error("API Error:", error.response?.data?.error || error.message);
+      throw error;
+    }
+};
+  
 
 api.interceptors.response.use(
   (response) => response,

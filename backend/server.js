@@ -5,10 +5,38 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
 const port = 8081;
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
+  setHeaders: (res) => {
+    res.set('Cache-Control', 'no-cache');
+  }
+}));
+
+console.log("Static files being served from:", path.join(__dirname, "uploads"));
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, "uploads");
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const userId = req.user.uid;
+    const uniqueSuffix = Date.now() + path.extname(file.originalname);
+    cb(null, `${userId}-${uniqueSuffix}`);
+  },
+});
+
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 const cors = require("cors");
 app.use(
@@ -127,14 +155,77 @@ app.post("/logout", (req, res) => {
   return res.json({ message: "Logged out." });
 });
 
-app.get("/profile", authMiddleware, (req, res) => {
+const sharp = require("sharp");
+
+app.post("/api/profile/uploadPicture", authMiddleware, upload.single("profilePicture"), async (req, res) => {
   try {
-    const { uid, email } = req.user;
-    return res.json({ user: { uid, email } });
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded." });
+    }
+
+    const metadata = await sharp(req.file.path).metadata();
+    if (metadata.width > 1000 || metadata.height > 1000) {
+      await sharp(req.file.path)
+        .resize(1000, 1000, { fit: "inside" })
+        .toFile(req.file.path);
+    }
+
+    const { uid } = req.user;
+    const filePath = `uploads/${req.file.filename}`;
+    await db.collection("users").doc(uid).update({ profilePicture: filePath });
+
+    res.json({ message: "Profile picture uploaded successfully.", profilePicture: filePath });
   } catch (error) {
-    return res.status(500).json({ error: "Failed to fetch profile" });
+    console.error("Error uploading profile picture:", error);
+    res.status(500).json({ error: "Failed to upload profile picture." });
   }
 });
+
+
+
+app.post("/api/profile/updateName", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { displayName } = req.body;
+
+    if (!displayName) {
+      return res.status(400).json({ error: "Name is required." });
+    }
+
+    await usersCollection.doc(userId).update({ displayName });
+    res.json({ message: "Name updated successfully." });
+  } catch (error) {
+    console.error("Error updating name:", error);
+    res.status(500).json({ error: "Failed to update name." });
+  }
+});
+
+app.get("/profile", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const userSnap = await usersCollection.doc(userId).get();
+
+    if (!userSnap.exists) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const userData = userSnap.data();
+
+    res.json({
+      user: {
+        uid: userId,
+        email: userData.email,
+        displayName: userData.displayName || "Anonymous",
+        profilePicture: userData.profilePicture || null,
+        createdAt: userData.createdAt.toDate(),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching profile:", error);
+    res.status(500).json({ error: "Failed to fetch profile" });
+  }
+});
+
 
 app.get("/api/boards", authMiddleware, async (req, res) => {
   try {

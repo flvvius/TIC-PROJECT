@@ -3,19 +3,37 @@
     <v-row>
       <v-col>
         <v-card>
-          <v-card-title>
-            Board Members
-            <v-spacer></v-spacer>
-            <v-btn icon color="primary" @click="inviteDialogOpen = true">
-              <v-icon>mdi-account-plus</v-icon>
-            </v-btn>
-          </v-card-title>
+          <v-card-title>Board Members</v-card-title>
           <v-card-text>
             <v-list>
-              <v-list-item v-for="(member, idx) in boardMembers" :key="idx">
-                <v-list-item-title>{{ member }}</v-list-item-title>
+              <v-list-item v-for="member in members" :key="member.email">
+                <v-row align="center">
+                  <v-col cols="auto" style="margin-right: -28px">
+                    <v-avatar>
+                      <v-img
+                        :src="
+                          member.profilePicture
+                            ? `${backendBaseUrl}/${member.profilePicture}`
+                            : 'http://localhost:8081/uploads/default-avatar.png'
+                        "
+                      />
+                    </v-avatar>
+                  </v-col>
+                  <v-col>
+                    <v-list-item-title>{{
+                      member.displayName || "Anonymous"
+                    }}</v-list-item-title>
+                    <v-list-item-subtitle>{{
+                      member.email
+                    }}</v-list-item-subtitle>
+                  </v-col>
+                </v-row>
               </v-list-item>
             </v-list>
+
+            <v-btn color="primary" @click="openInviteDialog"
+              >Invite Members</v-btn
+            >
           </v-card-text>
         </v-card>
       </v-col>
@@ -69,12 +87,12 @@
 
     <v-dialog v-model="inviteDialogOpen" max-width="500px">
       <v-card>
-        <v-card-title>Invite New Members</v-card-title>
+        <v-card-title>Invite Members</v-card-title>
         <v-card-text>
           <v-text-field
-            v-model="inviteInput"
-            label="UIDs (comma-separated)"
-            placeholder="user1UID, user2UID"
+            v-model="invitedEmails"
+            label="Enter emails (comma-separated)"
+            placeholder="example1@mail.com, example2@mail.com"
           />
         </v-card-text>
         <v-card-actions>
@@ -90,7 +108,6 @@
 import { ref, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import Draggable from "vuedraggable";
-
 import {
   getBoard,
   getColumns,
@@ -101,12 +118,13 @@ import {
   inviteMembers as inviteMembersAPI,
 } from "@/api";
 
+const backendBaseUrl = "http://localhost:8081";
 const route = useRoute();
 const boardId = route.params.boardId;
 
-const boardMembers = ref([]);
+const members = ref([]);
 const inviteDialogOpen = ref(false);
-const inviteInput = ref("");
+const invitedEmails = ref("");
 
 const columns = ref([]);
 const tasksByColumn = ref({});
@@ -117,9 +135,7 @@ const activeColumnId = ref(null);
 onMounted(async () => {
   try {
     const boardData = await getBoard(boardId);
-    boardMembers.value = Array.isArray(boardData.members)
-      ? boardData.members
-      : [];
+    members.value = boardData.members;
 
     let columnsData = await getColumns(boardId);
     if (!columnsData || !columnsData.length) {
@@ -161,16 +177,16 @@ onMounted(async () => {
 });
 
 async function inviteMembers() {
-  if (!inviteInput.value.trim()) return;
+  if (!invitedEmails.value.trim()) return;
 
-  const newMembers = inviteInput.value
+  const emailList = invitedEmails.value
     .split(",")
-    .map((item) => item.trim())
+    .map((email) => email.trim())
     .filter(Boolean);
 
   try {
-    await inviteMembersAPI(boardId, newMembers);
-    boardMembers.value.push(...newMembers);
+    const updatedMembers = await inviteMembersAPI(boardId, emailList);
+    members.value = updatedMembers;
     closeInviteDialog();
   } catch (error) {
     console.error("Error inviting members:", error);
@@ -179,7 +195,11 @@ async function inviteMembers() {
 
 function closeInviteDialog() {
   inviteDialogOpen.value = false;
-  inviteInput.value = "";
+  invitedEmails.value = "";
+}
+
+function openInviteDialog() {
+  inviteDialogOpen.value = true;
 }
 
 function openNewTaskDialog(columnId) {
@@ -244,4 +264,8 @@ async function onDragEnd() {
 }
 </script>
 
-<style scoped></style>
+<style scoped>
+.v-avatar {
+  margin-right: 16px;
+}
+</style>

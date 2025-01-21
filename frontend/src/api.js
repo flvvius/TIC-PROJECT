@@ -31,10 +31,15 @@ export const getBoards = async () => {
   return response.data;
 };
 
-export const getBoard = async (boardId) => {
-  const response = await api.get(`/api/boards/${boardId}`);
-  return response.data;
+export const inviteMembers = async (boardId, emails) => {
+    const response = await api.post(`/api/boards/${boardId}/invite`, { emails });
+    return response.data;
 };
+  
+export const getBoard = async (boardId) => {
+    const response = await api.get(`/api/boards/${boardId}`);
+    return response.data;
+};  
 
 export const createBoard = async (boardData) => {
   const response = await api.post("/api/boards", boardData);
@@ -70,12 +75,6 @@ export const updateTask = async (boardId, taskId, updates) => {
   const response = await api.patch(`/api/boards/${boardId}/tasks/${taskId}`, updates);
   return response.data;
 };
-
-export const inviteMembers = async (boardId, newMembers) => {
-  const response = await api.post(`/api/boards/${boardId}/invite`, { newMembers });
-  return response.data;
-};
-
 
 export const getProfile = async () => {
     const response = await api.get("/profile");

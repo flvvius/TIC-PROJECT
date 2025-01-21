@@ -181,8 +181,6 @@ app.post("/api/profile/uploadPicture", authMiddleware, upload.single("profilePic
   }
 });
 
-
-
 app.post("/api/profile/updateName", authMiddleware, async (req, res) => {
   try {
     const userId = req.user.uid;
@@ -226,13 +224,12 @@ app.get("/profile", authMiddleware, async (req, res) => {
   }
 });
 
-
 app.get("/api/boards", authMiddleware, async (req, res) => {
   try {
-    const { uid } = req.user;
+    const { email } = req.user;
     const boardsSnap = await db
       .collection("boards")
-      .where("members", "array-contains", uid)
+      .where("members", "array-contains", email)
       .get();
 
     const boards = boardsSnap.docs.map((doc) => ({
@@ -242,32 +239,29 @@ app.get("/api/boards", authMiddleware, async (req, res) => {
 
     res.json(boards);
   } catch (error) {
-    console.error("Error fetching boards:", error);
-    return res.status(500).json({ error: "Failed to fetch boards." });
+    res.status(500).json({ error: "Failed to fetch boards." });
   }
 });
 
 app.post("/api/boards", authMiddleware, async (req, res) => {
   try {
-    const { uid } = req.user;
     const { name, invitedUsers } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: "Board name is required." });
-    }
-    const members = [uid, ...(invitedUsers || [])];
+    const { email } = req.user;
+    const members = [email, ...(invitedUsers || [])];
 
-    const newBoardData = {
+    const newBoard = {
       name,
       members,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
-    const newRef = await db.collection("boards").add(newBoardData);
-    return res.status(201).json({ id: newRef.id, ...newBoardData });
+    const boardRef = await db.collection("boards").add(newBoard);
+
+    res.status(201).json({ id: boardRef.id, ...newBoard });
   } catch (error) {
-    console.error("Error creating board:", error);
-    return res.status(500).json({ error: "Failed to create board." });
+    res.status(500).json({ error: "Failed to create board." });
   }
 });
+
 
 app.get("/api/boards/:boardId", authMiddleware, async (req, res) => {
   try {
@@ -279,7 +273,26 @@ app.get("/api/boards/:boardId", authMiddleware, async (req, res) => {
     }
 
     const boardData = boardSnap.data();
-    res.json(boardData);
+    const membersDetails = [];
+
+    for (const email of boardData.members || []) {
+      const userSnap = await usersCollection.where("email", "==", email).get();
+      console.log("USER SNAP:          " + userSnap.docs[0].data()["email"])
+      if (userSnap.docs[0].data()) {
+        membersDetails.push({
+          email,
+          ...userSnap.docs[0].data(),
+        });
+      }
+    }
+
+    console.log("BOARD DATA:         " + boardData.members)
+    console.log("MEMBER DETAILS:     " + membersDetails[0].email)
+
+    res.json({
+      ...boardData,
+      members: membersDetails,
+    });
   } catch (error) {
     console.error("Error fetching board:", error);
     res.status(500).json({ error: "Failed to fetch board." });
@@ -399,21 +412,20 @@ app.patch("/api/boards/:boardId/tasks/:taskId", authMiddleware, async (req, res)
 
 app.post("/api/boards/:boardId/invite", authMiddleware, async (req, res) => {
   try {
-    const boardId = req.params.boardId;
-    const { newMembers } = req.body;
+    const { boardId } = req.params;
+    const { emails } = req.body;
 
-    if (!Array.isArray(newMembers) || newMembers.length === 0) {
-      return res.status(400).json({ error: "No members to add." });
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({ error: "No emails provided." });
     }
 
     const boardRef = db.collection("boards").doc(boardId);
     await boardRef.update({
-      members: admin.firestore.FieldValue.arrayUnion(...newMembers),
+      members: admin.firestore.FieldValue.arrayUnion(...emails),
     });
 
     res.json({ message: "Members invited successfully." });
   } catch (error) {
-    console.error("Error inviting members:", error);
     res.status(500).json({ error: "Failed to invite members." });
   }
 });

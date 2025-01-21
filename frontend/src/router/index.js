@@ -7,19 +7,20 @@ import Profile from "../views/ProfilePage.vue";
 import axios from "axios";
 
 async function getUserProfile() {
-  const response = await axios.get("http://localhost:8081/profile", {
-    withCredentials: true,
-  });
-  return response.data?.user;
+  try {
+    const response = await axios.get("http://localhost:8081/profile", {
+      withCredentials: true,
+    });
+    return response.data?.user;
+  } catch (error) {
+    console.error("Error fetching user profile:", error.message);
+    return null;
+  }
 }
 
 async function isAuthenticated() {
-  try {
-    const user = await getUserProfile();
-    return !!user;
-  } catch (error) {
-    return false;
-  }
+  const user = await getUserProfile();
+  return !!user?.email;
 }
 
 const routes = [
@@ -73,24 +74,28 @@ router.beforeEach(async (to, from, next) => {
         const boardData = boardResponse.data;
 
         if (!boardData || !Array.isArray(boardData.members)) {
-          console.warn("No board data or board has no members array. Redirecting.");
+          console.warn("Invalid board data. Redirecting to Home.");
           return next("/");
         }
 
         const user = await getUserProfile();
-        if (!user || !user.uid) {
-          console.warn("No user UID found. Redirecting to Home.");
+        if (!user?.email) {
+          console.warn("User email not found. Redirecting to Home.");
           return next("/");
         }
 
-        if (!boardData.members.includes(user.uid)) {
+        const isMember = boardData.members.some(
+          (member) => member.email === user.email
+        );
+
+        if (!isMember) {
           console.warn("User not a member of the board. Redirecting to Home.");
           return next("/");
         }
 
         return next();
       } catch (error) {
-        console.error("Error verifying board membership:", error);
+        console.error("Error verifying board membership:", error.message);
         return next("/");
       }
     }

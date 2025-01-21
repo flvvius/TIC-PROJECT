@@ -43,9 +43,9 @@
             />
   
             <v-text-field
-              label="Invite Members (comma-separated)"
-              v-model="inviteUsers"
-              placeholder="user1UID, user2UID"
+              label="Invite Members (emails, comma-separated)"
+              v-model="inviteEmails"
+              placeholder="user1@example.com, user2@example.com"
             />
           </v-card-text>
           <v-card-actions>
@@ -71,7 +71,7 @@
   const boards = ref([]);
   const isDialogOpen = ref(false);
   const newBoardName = ref("");
-  const inviteUsers = ref("");
+  const inviteEmails = ref("");
   
   onMounted(() => {
     fetchBoards();
@@ -93,7 +93,7 @@
   function closeDialog() {
     isDialogOpen.value = false;
     newBoardName.value = "";
-    inviteUsers.value = "";
+    inviteEmails.value = "";
   }
   
   async function createBoard() {
@@ -103,10 +103,10 @@
     }
   
     let invitedArray = [];
-    if (inviteUsers.value.trim()) {
-      invitedArray = inviteUsers.value
+    if (inviteEmails.value.trim()) {
+      invitedArray = inviteEmails.value
         .split(",")
-        .map(item => item.trim())
+        .map((email) => email.trim())
         .filter(Boolean);
     }
   

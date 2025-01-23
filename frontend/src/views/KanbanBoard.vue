@@ -23,9 +23,7 @@
                     <v-list-item-title>{{
                       member.displayName || "Anonymous"
                     }}</v-list-item-title>
-                    <v-list-item-subtitle>{{
-                      member.email
-                    }}</v-list-item-subtitle>
+                    <v-list-item-subtitle>{{ member.email }}</v-list-item-subtitle>
                     <v-btn
                       icon
                       small
@@ -39,9 +37,9 @@
               </v-list-item>
             </v-list>
 
-            <v-btn color="primary" v-if="isBoardOwner" @click="openInviteDialog"
-              >Invite Members</v-btn
-            >
+            <v-btn color="primary" v-if="isBoardOwner" @click="openInviteDialog">
+              Invite Members
+            </v-btn>
           </v-card-text>
         </v-card>
       </v-col>
@@ -109,6 +107,13 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-snackbar v-model="snackbarVisible" :color="snackbarColor" timeout="3000" location="top right">
+      {{ snackbarText }}
+      <template #action="{ attrs }">
+        <v-btn text v-bind="attrs" @click="snackbarVisible = false">Close</v-btn>
+      </template>
+    </v-snackbar>
   </v-container>
 </template>
 
@@ -143,6 +148,10 @@ const newTaskTitle = ref("");
 const activeColumnId = ref(null);
 const isBoardOwner = ref(false);
 const boardOwnerEmail = ref(null);
+
+const snackbarVisible = ref(false);
+const snackbarText = ref("");
+const snackbarColor = ref("");
 
 onMounted(async () => {
   try {
@@ -204,9 +213,14 @@ async function inviteMembers() {
     await inviteMembersAPI(boardId, emailList);
     const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
+    showSnackbar(`${emailList.length} members successfully invited.`, "success");
     closeInviteDialog();
   } catch (error) {
-    console.error("Error inviting members:", error);
+    if (error.response?.status === 404) {
+      showSnackbar("Some members were not found.", "warning");
+    } else {
+      showSnackbar("Error inviting members. Try again later.", "error");
+    }
   }
 }
 
@@ -224,9 +238,16 @@ async function removeMember(email) {
     await removeMemberAPI(boardId, email);
     const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
+    showSnackbar("Member removed successfully.", "success");
   } catch (error) {
-    console.error("Error removing member:", error);
+    showSnackbar("Error removing member. Try again later.", "error");
   }
+}
+
+function showSnackbar(message, color) {
+  snackbarText.value = message;
+  snackbarColor.value = color;
+  snackbarVisible.value = true;
 }
 
 function openNewTaskDialog(columnId) {
@@ -276,7 +297,8 @@ async function onDragChange(evt, newColumnId) {
 }
 
 async function onDragEnd() {
-  try {
+  try
+ {
     for (const tasks of Object.entries(tasksByColumn.value)) {
       await Promise.all(
         tasks.map((task, idx) => {

@@ -245,20 +245,45 @@ app.get("/api/boards", authMiddleware, async (req, res) => {
 
 app.post("/api/boards", authMiddleware, async (req, res) => {
   try {
-    const { name, invitedUsers, ownerEmail } = req.body;
+    const { name, invitedUsers = [], ownerEmail } = req.body;
     const { email } = req.user;
-    const members = [email, ...(invitedUsers || [])];
 
+    if (!name) {
+      return res.status(400).json({ error: "Board name is required." });
+    }
+
+    const validEmails = [];
+    const invalidEmails = [];
+
+    for (const invitedEmail of invitedUsers) {
+      const userSnap = await db.collection("users").where("email", "==", invitedEmail).limit(1).get();
+      if (!userSnap.empty) {
+        validEmails.push(invitedEmail);
+      } else {
+        invalidEmails.push(invitedEmail);
+      }
+    }
+
+    if (invalidEmails.length) {
+      return res.status(400).json({
+        error: "Some emails are invalid.",
+        invalidEmails,
+      });
+    }
+
+    const members = [email, ...validEmails];
     const newBoard = {
       name,
       members,
       ownerEmail,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
+
     const boardRef = await db.collection("boards").add(newBoard);
 
     res.status(201).json({ id: boardRef.id, ...newBoard });
   } catch (error) {
+    console.error("Error creating board:", error);
     res.status(500).json({ error: "Failed to create board." });
   }
 });
@@ -414,22 +439,38 @@ app.patch("/api/boards/:boardId/tasks/:taskId", authMiddleware, async (req, res)
 app.post("/api/boards/:boardId/invite", authMiddleware, async (req, res) => {
   try {
     const { boardId } = req.params;
-    const { emails } = req.body;
+    const emails = req.body.emails || [];
 
-    if (!Array.isArray(emails) || emails.length === 0) {
+    if (!emails.length) {
       return res.status(400).json({ error: "No emails provided." });
     }
 
+    const validEmails = [];
     const boardRef = db.collection("boards").doc(boardId);
-    await boardRef.update({
-      members: admin.firestore.FieldValue.arrayUnion(...emails),
-    });
 
-    res.json({ message: "Members invited successfully." });
+    for (const email of emails) {
+      const userSnap = await db.collection("users").where("email", "==", email).limit(1).get();
+      if (!userSnap.empty) {
+        validEmails.push(email);
+      } else {
+        console.warn(`User not found for email: ${email}`);
+      }
+    }
+
+    if (validEmails.length) {
+      await boardRef.update({
+        members: admin.firestore.FieldValue.arrayUnion(...validEmails),
+      });
+      res.json({ message: "Valid members invited successfully." });
+    } else {
+      res.status(400).json({ error: "No valid emails found for invitation." });
+    }
   } catch (error) {
+    console.error("Error inviting members:", error);
     res.status(500).json({ error: "Failed to invite members." });
   }
 });
+
 
 app.delete("/api/boards/:boardId/members/:email", authMiddleware, async (req, res) => {
   try {

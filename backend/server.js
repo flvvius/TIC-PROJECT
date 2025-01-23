@@ -245,13 +245,14 @@ app.get("/api/boards", authMiddleware, async (req, res) => {
 
 app.post("/api/boards", authMiddleware, async (req, res) => {
   try {
-    const { name, invitedUsers } = req.body;
+    const { name, invitedUsers, ownerEmail } = req.body;
     const { email } = req.user;
     const members = [email, ...(invitedUsers || [])];
 
     const newBoard = {
       name,
       members,
+      ownerEmail,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     const boardRef = await db.collection("boards").add(newBoard);

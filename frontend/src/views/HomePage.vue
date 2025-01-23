@@ -65,15 +65,18 @@
     getBoards,
     createBoard as createBoardAPI,
     deleteBoard as deleteBoardAPI,
+    getProfile,
   } from "../api";
-  
+
   const router = useRouter();
   const boards = ref([]);
   const isDialogOpen = ref(false);
   const newBoardName = ref("");
   const inviteEmails = ref("");
+  const userData = ref("");
   
-  onMounted(() => {
+  onMounted(async () => {
+    userData.value = (await getProfile()).user;
     fetchBoards();
   });
   
@@ -114,6 +117,7 @@
       await createBoardAPI({
         name: newBoardName.value,
         invitedUsers: invitedArray,
+        ownerEmail: userData.value.email,
       });
       await fetchBoards();
       closeDialog();

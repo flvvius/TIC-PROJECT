@@ -26,12 +26,15 @@
                     <v-list-item-subtitle>{{
                       member.email
                     }}</v-list-item-subtitle>
+                    <v-btn icon small v-if="isBoardOwner && member.email !== boardOwnerEmail" @click="removeMember(member.email)">
+                      <v-icon>mdi-delete</v-icon>
+                    </v-btn>
                   </v-col>
                 </v-row>
               </v-list-item>
             </v-list>
 
-            <v-btn color="primary" @click="openInviteDialog"
+            <v-btn color="primary" v-if="isBoardOwner" @click="openInviteDialog"
               >Invite Members</v-btn
             >
           </v-card-text>
@@ -113,9 +116,11 @@ import {
   getColumns,
   createOrUpdateColumn,
   getTasks,
+  getProfile,
   createTask as createTaskAPI,
   updateTask as updateTaskAPI,
   inviteMembers as inviteMembersAPI,
+  removeMember as removeMemberAPI,
 } from "@/api";
 
 const backendBaseUrl = "http://localhost:8081";
@@ -131,11 +136,17 @@ const tasksByColumn = ref({});
 const isDialogOpen = ref(false);
 const newTaskTitle = ref("");
 const activeColumnId = ref(null);
+const isBoardOwner = ref(false);
+const boardOwnerEmail = ref(null);
 
 onMounted(async () => {
   try {
+    const userData = await getProfile();
+    const user = userData.user;
     const boardData = await getBoard(boardId);
     members.value = boardData.members;
+    isBoardOwner.value = boardData.ownerEmail === user.email;
+    boardOwnerEmail.value = boardData.ownerEmail;
 
     let columnsData = await getColumns(boardId);
     if (!columnsData || !columnsData.length) {
@@ -185,7 +196,8 @@ async function inviteMembers() {
     .filter(Boolean);
 
   try {
-    const updatedMembers = await inviteMembersAPI(boardId, emailList);
+    await inviteMembersAPI(boardId, emailList);
+    const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
     closeInviteDialog();
   } catch (error) {
@@ -200,6 +212,15 @@ function closeInviteDialog() {
 
 function openInviteDialog() {
   inviteDialogOpen.value = true;
+}
+
+async function removeMember(email) {
+  try {
+    const updatedMembers = await removeMemberAPI(boardId, email);
+    members.value = updatedMembers;
+  } catch (error) {
+    console.error("Error removing member:", error);
+  }
 }
 
 function openNewTaskDialog(columnId) {

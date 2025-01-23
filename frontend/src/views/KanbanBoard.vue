@@ -26,7 +26,12 @@
                     <v-list-item-subtitle>{{
                       member.email
                     }}</v-list-item-subtitle>
-                    <v-btn icon small v-if="isBoardOwner && member.email !== boardOwnerEmail" @click="removeMember(member.email)">
+                    <v-btn
+                      icon
+                      small
+                      v-if="isBoardOwner && member.email !== boardOwnerEmail"
+                      @click="removeMember(member.email)"
+                    >
                       <v-icon>mdi-delete</v-icon>
                     </v-btn>
                   </v-col>
@@ -216,7 +221,8 @@ function openInviteDialog() {
 
 async function removeMember(email) {
   try {
-    const updatedMembers = await removeMemberAPI(boardId, email);
+    await removeMemberAPI(boardId, email);
+    const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
   } catch (error) {
     console.error("Error removing member:", error);

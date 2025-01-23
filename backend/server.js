@@ -431,6 +431,22 @@ app.post("/api/boards/:boardId/invite", authMiddleware, async (req, res) => {
   }
 });
 
+app.delete("/api/boards/:boardId/members/:email", authMiddleware, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const email = req.params.email;
+
+    const boardRef = db.collection("boards").doc(boardId);
+    await boardRef.update({
+      members: admin.firestore.FieldValue.arrayRemove(email),
+    });
+
+    res.json({ message: `Member ${email} removed successfully.` });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to remove member." });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });

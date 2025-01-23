@@ -35,6 +35,11 @@ export const inviteMembers = async (boardId, emails) => {
     const response = await api.post(`/api/boards/${boardId}/invite`, { emails });
     return response.data;
 };
+
+export const removeMember = async (boardId, email) => {
+    const response = await api.delete(`/api/boards/${boardId}/members/${email}`);
+    return response.data;
+};
   
 export const getBoard = async (boardId) => {
     const response = await api.get(`/api/boards/${boardId}`);

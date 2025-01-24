@@ -8,12 +8,11 @@
             <v-img
               v-if="profile?.profilePicture"
               :src="`http://localhost:8081/${profile.profilePicture}`"
-              alt="Profile Picture qqq"
+              alt="Profile Picture"
               width="200"
               height="200"
               class="rounded-circle"
             />
-
             <div v-else>
               <v-icon color="grey" size="96">mdi-account-circle</v-icon>
               <p>No picture uploaded</p>
@@ -46,9 +45,7 @@
               <p v-if="profile.createdAt">
                 Account created on: <strong>{{ formattedDate }}</strong>
               </p>
-
               <v-divider class="my-4"></v-divider>
-
               <v-text-field
                 label="Update Name"
                 v-model="updatedDisplayName"
@@ -65,6 +62,18 @@
         </v-card>
       </v-col>
     </v-row>
+
+    <v-snackbar
+      v-model="toast.show"
+      :timeout="toast.timeout"
+      :color="toast.color"
+      location="top right"
+    >
+      {{ toast.message }}
+      <template #actions>
+        <v-btn text @click="toast.show = false">Close</v-btn>
+      </template>
+    </v-snackbar>
   </v-container>
 </template>
 
@@ -75,18 +84,21 @@ import {
   updateProfile,
   uploadProfilePicture as uploadProfilePictureAPI,
 } from "@/api";
+import { useToast, showToast } from "@/utils/toast";
 
 const profile = ref(null);
 const updatedDisplayName = ref("");
+const toast = useToast();
 
 onMounted(async () => {
   try {
     const response = await getProfile();
     profile.value = response.user;
     updatedDisplayName.value = profile.value?.displayName || "";
-    console.log("Fetched profile:", profile.value);
+    showToast("Profile fetched successfully.", "success");
   } catch (err) {
     console.error("Error fetching profile:", err.message);
+    showToast("Failed to fetch profile. Please try again later.", "error");
   }
 });
 
@@ -96,12 +108,18 @@ const formattedDate = computed(() => {
 });
 
 async function updateDisplayName() {
+  if (!updatedDisplayName.value.trim()) {
+    showToast("Display name cannot be empty.", "warning");
+    return;
+  }
+
   try {
     await updateProfile({ displayName: updatedDisplayName.value });
     profile.value.displayName = updatedDisplayName.value;
-    console.log("Display name updated successfully.");
+    showToast("Display name updated successfully.", "success");
   } catch (err) {
     console.error("Error updating display name:", err.message);
+    showToast("Failed to update display name.", "error");
   }
 }
 
@@ -110,12 +128,15 @@ async function handleProfilePictureUpload(event) {
     event instanceof File ? event : event?.[0] || event?.target?.files?.[0];
 
   if (!file) {
-    console.error("No file selected for upload.");
+    showToast("No file selected for upload.", "warning");
     return;
   }
 
   if (file.size > 5 * 1024 * 1024) {
-    alert("File size exceeds 5MB. Please choose a smaller file.");
+    showToast(
+      "File size exceeds 5MB. Please choose a smaller file.",
+      "warning"
+    );
     return;
   }
 
@@ -125,12 +146,10 @@ async function handleProfilePictureUpload(event) {
   try {
     const response = await uploadProfilePictureAPI(formData);
     profile.value.profilePicture = response.profilePicture;
-    console.log(
-      "Profile picture uploaded successfully:",
-      response.profilePicture
-    );
+    showToast("Profile picture uploaded successfully.", "success");
   } catch (err) {
     console.error("Error uploading profile picture:", err.message);
+    showToast("Failed to upload profile picture.", "error");
   }
 }
 </script>

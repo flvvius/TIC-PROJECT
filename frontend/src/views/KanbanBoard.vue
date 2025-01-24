@@ -23,7 +23,9 @@
                     <v-list-item-title>{{
                       member.displayName || "Anonymous"
                     }}</v-list-item-title>
-                    <v-list-item-subtitle>{{ member.email }}</v-list-item-subtitle>
+                    <v-list-item-subtitle>{{
+                      member.email
+                    }}</v-list-item-subtitle>
                     <v-btn
                       icon
                       small
@@ -37,7 +39,11 @@
               </v-list-item>
             </v-list>
 
-            <v-btn color="primary" v-if="isBoardOwner" @click="openInviteDialog">
+            <v-btn
+              color="primary"
+              v-if="isBoardOwner"
+              @click="openInviteDialog"
+            >
               Invite Members
             </v-btn>
           </v-card-text>
@@ -108,10 +114,15 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbarVisible" :color="snackbarColor" timeout="3000" location="top right">
-      {{ snackbarText }}
-      <template #action="{ attrs }">
-        <v-btn text v-bind="attrs" @click="snackbarVisible = false">Close</v-btn>
+    <v-snackbar
+      v-model="toast.show"
+      :timeout="toast.timeout"
+      :color="toast.color"
+      location="top right"
+    >
+      {{ toast.message }}
+      <template #actions>
+        <v-btn text @click="toast.show = false">Close</v-btn>
       </template>
     </v-snackbar>
   </v-container>
@@ -132,10 +143,12 @@ import {
   inviteMembers as inviteMembersAPI,
   removeMember as removeMemberAPI,
 } from "@/api";
+import { useToast, showToast } from "@/utils/toast";
 
 const backendBaseUrl = "http://localhost:8081";
 const route = useRoute();
 const boardId = route.params.boardId;
+const toast = useToast();
 
 const members = ref([]);
 const inviteDialogOpen = ref(false);
@@ -148,10 +161,6 @@ const newTaskTitle = ref("");
 const activeColumnId = ref(null);
 const isBoardOwner = ref(false);
 const boardOwnerEmail = ref(null);
-
-const snackbarVisible = ref(false);
-const snackbarText = ref("");
-const snackbarColor = ref("");
 
 onMounted(async () => {
   try {
@@ -202,7 +211,10 @@ onMounted(async () => {
 });
 
 async function inviteMembers() {
-  if (!invitedEmails.value.trim()) return;
+  if (!invitedEmails.value.trim()) {
+    showToast("Please enter at least one email.", "warning");
+    return;
+  }
 
   const emailList = invitedEmails.value
     .split(",")
@@ -210,19 +222,44 @@ async function inviteMembers() {
     .filter(Boolean);
 
   try {
-    await inviteMembersAPI(boardId, emailList);
+    const response = await inviteMembersAPI(boardId, emailList);
+    const { validEmails, alreadyMembers, invalidEmails } = response;
+
+    if (validEmails.length) {
+      showToast(
+        `${validEmails.length} members successfully invited.`,
+        "success"
+      );
+    }
+
+    if (alreadyMembers.length) {
+      showToast(
+        `These members were already part of the board: ${alreadyMembers.join(
+          ", "
+        )}.`,
+        "info"
+      );
+    }
+
+    if (invalidEmails.length) {
+      showToast(
+        `These emails are invalid or do not exist: ${invalidEmails.join(
+          ", "
+        )}.`,
+        "warning"
+      );
+    }
+
     const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
-    showSnackbar(`${emailList.length} members successfully invited.`, "success");
     closeInviteDialog();
   } catch (error) {
-    if (error.response?.status === 404) {
-      showSnackbar("Some members were not found.", "warning");
-    } else {
-      showSnackbar("Error inviting members. Try again later.", "error");
-    }
+    console.error("Error inviting members:", error);
+    showToast("Failed to invite members. Please try again later.", "error");
   }
 }
+
+
 
 function closeInviteDialog() {
   inviteDialogOpen.value = false;
@@ -238,16 +275,10 @@ async function removeMember(email) {
     await removeMemberAPI(boardId, email);
     const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
-    showSnackbar("Member removed successfully.", "success");
+    showToast("Member removed successfully.", "success");
   } catch (error) {
-    showSnackbar("Error removing member. Try again later.", "error");
+    showToast("Error removing member. Try again later.", "error");
   }
-}
-
-function showSnackbar(message, color) {
-  snackbarText.value = message;
-  snackbarColor.value = color;
-  snackbarVisible.value = true;
 }
 
 function openNewTaskDialog(columnId) {
@@ -297,8 +328,7 @@ async function onDragChange(evt, newColumnId) {
 }
 
 async function onDragEnd() {
-  try
- {
+  try {
     for (const tasks of Object.entries(tasksByColumn.value)) {
       await Promise.all(
         tasks.map((task, idx) => {

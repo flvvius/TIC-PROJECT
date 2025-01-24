@@ -446,9 +446,22 @@ app.post("/api/boards/:boardId/invite", authMiddleware, async (req, res) => {
     }
 
     const validEmails = [];
+    const alreadyMembers = [];
     const boardRef = db.collection("boards").doc(boardId);
+    const boardSnap = await boardRef.get();
+
+    if (!boardSnap.exists) {
+      return res.status(404).json({ error: "Board not found." });
+    }
+
+    const currentMembers = boardSnap.data().members || [];
 
     for (const email of emails) {
+      if (currentMembers.includes(email)) {
+        alreadyMembers.push(email);
+        continue;
+      }
+
       const userSnap = await db.collection("users").where("email", "==", email).limit(1).get();
       if (!userSnap.empty) {
         validEmails.push(email);
@@ -461,16 +474,21 @@ app.post("/api/boards/:boardId/invite", authMiddleware, async (req, res) => {
       await boardRef.update({
         members: admin.firestore.FieldValue.arrayUnion(...validEmails),
       });
-      res.json({ message: "Valid members invited successfully." });
-    } else {
-      res.status(400).json({ error: "No valid emails found for invitation." });
     }
+
+    res.json({
+      message: "Invite processed.",
+      validEmails,
+      alreadyMembers,
+      invalidEmails: emails.filter(
+        (email) => !validEmails.includes(email) && !alreadyMembers.includes(email)
+      ),
+    });
   } catch (error) {
     console.error("Error inviting members:", error);
     res.status(500).json({ error: "Failed to invite members." });
   }
 });
-
 
 app.delete("/api/boards/:boardId/members/:email", authMiddleware, async (req, res) => {
   try {

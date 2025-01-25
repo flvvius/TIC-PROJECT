@@ -46,14 +46,12 @@
                     </v-avatar>
                   </v-col>
                   <v-col>
-                    <v-list-item-content>
-                      <v-list-item-title class="font-weight-medium">
-                        {{ member.displayName || "Anonymous" }}
-                      </v-list-item-title>
-                      <v-list-item-subtitle>{{
-                        member.email
-                      }}</v-list-item-subtitle>
-                    </v-list-item-content>
+                    <v-list-item-title class="font-weight-medium">
+                      {{ member.displayName || "Anonymous" }}
+                    </v-list-item-title>
+                    <v-list-item-subtitle>{{
+                      member.email
+                    }}</v-list-item-subtitle>
                   </v-col>
                   <v-col cols="auto">
                     <v-btn

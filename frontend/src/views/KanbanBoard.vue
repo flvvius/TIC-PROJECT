@@ -4,7 +4,8 @@
       <v-col cols="12" md="8" lg="6">
         <v-card elevation="3" class="mb-4">
           <v-card-title>
-            <v-icon left color="primary">mdi-account-multiple</v-icon> Board Members
+            <v-icon left color="primary">mdi-account-multiple</v-icon> Board
+            Members
             <v-spacer></v-spacer>
             <v-btn
               color="primary"
@@ -14,38 +15,61 @@
             >
               <v-icon left>mdi-plus</v-icon> Invite
             </v-btn>
+            <v-btn
+              icon
+              @click="toggleMembersPanel"
+              :aria-label="isMembersPanelExpanded ? 'Collapse' : 'Expand'"
+            >
+              <v-icon>{{
+                isMembersPanelExpanded ? "mdi-chevron-up" : "mdi-chevron-down"
+              }}</v-icon>
+            </v-btn>
           </v-card-title>
           <v-divider></v-divider>
-          <v-card-text>
+          <v-card-text v-if="isMembersPanelExpanded">
             <v-list>
               <v-list-item
                 v-for="member in members"
                 :key="member.email"
-                class="d-flex align-center"
+                class="d-flex align-center justify-space-between"
               >
-                <v-avatar size="48" class="me-3">
-                  <v-img
-                    :src="
-                      member.profilePicture
-                        ? `${backendBaseUrl}/${member.profilePicture}`
-                        : 'http://localhost:8081/uploads/default-avatar.png'
-                    "
-                  ></v-img>
-                </v-avatar>
-                <v-list-item-content>
-                  <v-list-item-title class="font-weight-medium">
-                    {{ member.displayName || "Anonymous" }}
-                  </v-list-item-title>
-                  <v-list-item-subtitle>{{ member.email }}</v-list-item-subtitle>
-                </v-list-item-content>
-                <v-btn
-                  icon
-                  small
-                  v-if="isBoardOwner && member.email !== boardOwnerEmail"
-                  @click="openRemoveDialog(member.email, member.displayName)"
-                >
-                  <v-icon color="error">mdi-delete</v-icon>
-                </v-btn>
+                <v-row align="center" no-gutters class="w-100">
+                  <v-col cols="auto">
+                    <v-avatar size="48" class="me-3">
+                      <v-img
+                        :src="
+                          member.profilePicture
+                            ? `${backendBaseUrl}/${member.profilePicture}`
+                            : 'http://localhost:8081/uploads/default-avatar.png'
+                        "
+                      ></v-img>
+                    </v-avatar>
+                  </v-col>
+                  <v-col>
+                    <v-list-item-content>
+                      <v-list-item-title class="font-weight-medium">
+                        {{ member.displayName || "Anonymous" }}
+                      </v-list-item-title>
+                      <v-list-item-subtitle>{{
+                        member.email
+                      }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                  </v-col>
+                  <v-col cols="auto">
+                    <v-btn
+                      icon
+                      small
+                      color="error"
+                      style="margin-left: 8px; transform: scale(0.8)"
+                      v-if="isBoardOwner && member.email !== boardOwnerEmail"
+                      @click="
+                        openRemoveDialog(member.email, member.displayName)
+                      "
+                    >
+                      <v-icon>mdi-delete</v-icon>
+                    </v-btn>
+                  </v-col>
+                </v-row>
               </v-list-item>
             </v-list>
           </v-card-text>
@@ -135,7 +159,8 @@
         <v-card-title class="text-h6">Confirm Member Removal</v-card-title>
         <v-divider></v-divider>
         <v-card-text>
-          Are you sure you want to remove <strong>{{ memberToRemoveName }}</strong> from the board?
+          Are you sure you want to remove
+          <strong>{{ memberToRemoveName }}</strong> from the board?
         </v-card-text>
         <v-card-actions>
           <v-btn color="error" text @click="confirmRemoveMember">Remove</v-btn>
@@ -157,7 +182,6 @@
     </v-snackbar>
   </v-container>
 </template>
-
 
 <script setup>
 import { ref, onMounted } from "vue";
@@ -184,6 +208,7 @@ const toast = useToast();
 const members = ref([]);
 const inviteDialogOpen = ref(false);
 const invitedEmails = ref("");
+const isMembersPanelExpanded = ref(false);
 
 const columns = ref([]);
 const tasksByColumn = ref({});
@@ -244,6 +269,10 @@ onMounted(async () => {
     console.error("Error fetching board data:", error);
   }
 });
+
+function toggleMembersPanel() {
+  isMembersPanelExpanded.value = !isMembersPanelExpanded.value;
+}
 
 async function inviteMembers() {
   if (!invitedEmails.value.trim()) {
@@ -321,7 +350,6 @@ async function confirmRemoveMember() {
     isRemoveDialogOpen.value = false;
   }
 }
-
 
 function openNewTaskDialog(columnId) {
   activeColumnId.value = columnId;

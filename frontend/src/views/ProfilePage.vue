@@ -1,62 +1,75 @@
 <template>
   <v-container>
-    <v-row>
+    <v-row justify="center" class="mt-6">
       <v-col cols="12" md="4">
-        <v-card>
-          <v-card-title>Profile Picture</v-card-title>
+        <v-card elevation="2" class="pa-4">
+          <v-card-title>
+            <v-icon left color="primary">mdi-account-circle</v-icon> Profile Picture
+          </v-card-title>
+          <v-divider></v-divider>
           <v-card-text class="d-flex flex-column align-center">
-            <v-img
-              v-if="profile?.profilePicture"
-              :src="`http://localhost:8081/${profile.profilePicture}`"
-              alt="Profile Picture"
-              width="200"
-              height="200"
-              class="rounded-circle"
-            />
-            <div v-else>
-              <v-icon color="grey" size="96">mdi-account-circle</v-icon>
-              <p>No picture uploaded</p>
-            </div>
+            <v-avatar size="128" class="mb-4">
+              <v-img
+                v-if="profile?.profilePicture"
+                :src="`http://localhost:8081/${profile.profilePicture}`"
+                alt="Profile Picture"
+              />
+              <v-icon v-else size="128" color="grey">mdi-account-circle</v-icon>
+            </v-avatar>
             <v-file-input
               label="Upload Profile Picture"
               @change="handleProfilePictureUpload"
               accept="image/*"
-              dense
-              class="mt-4"
+              variant="outlined"
             />
           </v-card-text>
         </v-card>
       </v-col>
 
       <v-col cols="12" md="8">
-        <v-card>
-          <v-card-title>My Profile</v-card-title>
+        <v-card elevation="2" class="pa-4">
+          <v-card-title>
+            <v-icon left color="primary">mdi-account-details</v-icon> My Profile
+          </v-card-title>
+          <v-divider></v-divider>
           <v-card-text>
             <div v-if="profile">
-              <p>
-                Your email: <strong>{{ profile.email }}</strong>
-              </p>
-              <p v-if="profile.displayName">
-                Your name: <strong>{{ profile.displayName }}</strong>
-              </p>
-              <p>
-                Your user ID: <strong>{{ profile.uid }}</strong>
-              </p>
-              <p v-if="profile.createdAt">
-                Account created on: <strong>{{ formattedDate }}</strong>
-              </p>
-              <v-divider class="my-4"></v-divider>
-              <v-text-field
-                label="Update Name"
-                v-model="updatedDisplayName"
-                placeholder="Enter your name"
-              />
-              <v-btn color="success" @click="updateDisplayName">
-                Save Name
-              </v-btn>
+              <v-row>
+                <v-col cols="12">
+                  <p>
+                    <strong>Email:</strong> {{ profile.email }}
+                  </p>
+                  <p v-if="profile.displayName">
+                    <strong>Name:</strong> {{ profile.displayName }}
+                  </p>
+                  <p>
+                    <strong>User ID:</strong> {{ profile.uid }}
+                  </p>
+                  <p v-if="profile.createdAt">
+                    <strong>Account Created On:</strong> {{ formattedDate }}
+                  </p>
+                </v-col>
+                <v-divider class="my-3"></v-divider>
+                <v-col cols="12">
+                  <v-text-field
+                    label="Update Name"
+                    v-model="updatedDisplayName"
+                    placeholder="Enter your name"
+                    outlined
+                  />
+                  <v-btn
+                    color="success"
+                    class="mt-3"
+                    @click="updateDisplayName"
+                    block
+                  >
+                    Save Name
+                  </v-btn>
+                </v-col>
+              </v-row>
             </div>
             <div v-else>
-              <p>No user profile available.</p>
+              <v-alert type="warning" class="mt-3">No user profile available.</v-alert>
             </div>
           </v-card-text>
         </v-card>

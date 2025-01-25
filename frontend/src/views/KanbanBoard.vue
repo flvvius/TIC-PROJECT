@@ -20,9 +20,9 @@
               @click="toggleMembersPanel"
               :aria-label="isMembersPanelExpanded ? 'Collapse' : 'Expand'"
             >
-              <v-icon>{{
-                isMembersPanelExpanded ? "mdi-chevron-up" : "mdi-chevron-down"
-              }}</v-icon>
+              <v-icon>
+                {{ isMembersPanelExpanded ? "mdi-chevron-up" : "mdi-chevron-down" }}
+              </v-icon>
             </v-btn>
           </v-card-title>
           <v-divider></v-divider>
@@ -49,9 +49,7 @@
                     <v-list-item-title class="font-weight-medium">
                       {{ member.displayName || "Anonymous" }}
                     </v-list-item-title>
-                    <v-list-item-subtitle>{{
-                      member.email
-                    }}</v-list-item-subtitle>
+                    <v-list-item-subtitle>{{ member.email }}</v-list-item-subtitle>
                   </v-col>
                   <v-col cols="auto">
                     <v-btn
@@ -60,9 +58,7 @@
                       color="error"
                       style="margin-left: 8px; transform: scale(0.8)"
                       v-if="isBoardOwner && member.email !== boardOwnerEmail"
-                      @click="
-                        openRemoveDialog(member.email, member.displayName)
-                      "
+                      @click="openRemoveDialog(member.email, member.displayName)"
                     >
                       <v-icon>mdi-delete</v-icon>
                     </v-btn>
@@ -183,8 +179,9 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Draggable from "vuedraggable";
+
 import {
   getBoard,
   getColumns,
@@ -198,11 +195,21 @@ import {
 } from "@/api";
 import { useToast, showToast } from "@/utils/toast";
 
-import { collection, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import {
+  doc,
+  collection,
+  onSnapshot,
+  query,
+  where,
+  getDocs
+} from "firebase/firestore";
+
+import { db } from "@/firebase";
 
 const backendBaseUrl = "http://localhost:8081";
 const route = useRoute();
+const router = useRouter();
+
 const boardId = route.params.boardId;
 const toast = useToast();
 
@@ -223,40 +230,92 @@ const isRemoveDialogOpen = ref(false);
 const memberToRemove = ref(null);
 const memberToRemoveName = ref("");
 
+const currentUserEmail = ref("");
+
+let unsubscribeBoard = null;
+let unsubscribeColumns = null;
+let unsubscribeTasks = null;
+
 onMounted(async () => {
-  const membersRef = collection(db, `boards/${boardId}/members`);
-  const columnsRef = collection(db, `boards/${boardId}/columns`);
-  const tasksRef = collection(db, `boards/${boardId}/tasks`);
-
-  const unsubscribeMembers = onSnapshot(membersRef, (snapshot) => {
-    members.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-  });
-
-  const unsubscribeColumns = onSnapshot(columnsRef, (snapshot) => {
-    columns.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    tasksByColumn.value = columns.value.reduce((acc, col) => {
-      acc[col.id] = [];
-      return acc;
-    }, {});
-  });
-
-  const unsubscribeTasks = onSnapshot(tasksRef, (snapshot) => {
-    const tasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    tasksByColumn.value = tasks.reduce((acc, task) => {
-      if (!acc[task.columnId]) acc[task.columnId] = [];
-      acc[task.columnId].push(task);
-      return acc;
-    }, {});
-  });
-
-  initializeBoardListeners(boardId);
-
   try {
     const userData = await getProfile();
-    const user = userData.user;
+    currentUserEmail.value = userData.user.email;
+
+    const boardDocRef = doc(db, "boards", boardId);
+    unsubscribeBoard = onSnapshot(boardDocRef, async (snapshot) => {
+      if (!snapshot.exists()) {
+        showToast("This board no longer exists.", "warning");
+        router.push("/");
+        return;
+      }
+
+      const boardData = snapshot.data();
+      const memberEmails = boardData?.members || [];
+
+      if (!memberEmails.includes(currentUserEmail.value)) {
+        showToast("You have been removed from the board.", "warning");
+        router.push("/");
+        return;
+      }
+
+      const fetchedMembers = await Promise.all(
+        memberEmails.map(async (email) => {
+          const q = query(collection(db, "users"), where("email", "==", email));
+          const userSnap = await getDocs(q);
+          if (!userSnap.empty) {
+            const userDoc = userSnap.docs[0];
+            return {
+              email,
+              displayName: userDoc.data().displayName || "Anonymous",
+              profilePicture: userDoc.data().profilePicture || null,
+            };
+          }
+          return {
+            email,
+            displayName: "Unknown",
+            profilePicture: null,
+          };
+        })
+      );
+      members.value = fetchedMembers;
+
+      isBoardOwner.value = boardData.ownerEmail === currentUserEmail.value;
+      boardOwnerEmail.value = boardData.ownerEmail;
+    });
+
+    const columnsRef = collection(db, `boards/${boardId}/columns`);
+    unsubscribeColumns = onSnapshot(columnsRef, (snapshot) => {
+      columns.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      tasksByColumn.value = columns.value.reduce((acc, col) => {
+        acc[col.id] = [];
+        return acc;
+      }, {});
+    });
+
+    const tasksRef = collection(db, `boards/${boardId}/tasks`);
+    unsubscribeTasks = onSnapshot(tasksRef, (snapshot) => {
+      const tasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const newTasksByColumn = {};
+
+      tasks.forEach((task) => {
+        if (!newTasksByColumn[task.columnId]) {
+          newTasksByColumn[task.columnId] = [];
+        }
+        newTasksByColumn[task.columnId].push(task);
+      });
+
+      for (const columnId in newTasksByColumn) {
+        newTasksByColumn[columnId].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      }
+
+      tasksByColumn.value = newTasksByColumn;
+    });
+
+    initializeBoardListeners(boardId);
+
     const boardData = await getBoard(boardId);
     members.value = boardData.members;
-    isBoardOwner.value = boardData.ownerEmail === user.email;
+    isBoardOwner.value = boardData.ownerEmail === currentUserEmail.value;
     boardOwnerEmail.value = boardData.ownerEmail;
 
     let columnsData = await getColumns(boardId);
@@ -266,7 +325,6 @@ onMounted(async () => {
         { id: "in-progress", title: "In Progress", order: 1 },
         { id: "done", title: "Done", order: 2 },
       ];
-
       for (const col of columnsData) {
         await createOrUpdateColumn(boardId, col.id, {
           title: col.title,
@@ -289,19 +347,17 @@ onMounted(async () => {
     });
 
     for (const colId in tasksByColumn.value) {
-      tasksByColumn.value[colId].sort(
-        (a, b) => (a.order ?? 0) - (b.order ?? 0)
-      );
+      tasksByColumn.value[colId].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }
   } catch (error) {
     console.error("Error fetching board data:", error);
   }
+});
 
-  onUnmounted(() => {
-    unsubscribeMembers();
-    unsubscribeColumns();
-    unsubscribeTasks();
-  });
+onUnmounted(() => {
+  if (unsubscribeBoard) unsubscribeBoard();
+  if (unsubscribeColumns) unsubscribeColumns();
+  if (unsubscribeTasks) unsubscribeTasks();
 });
 
 async function initializeBoardListeners(boardId) {
@@ -338,21 +394,15 @@ async function inviteMembers() {
         "success"
       );
     }
-
     if (alreadyMembers.length) {
       showToast(
-        `These members were already part of the board: ${alreadyMembers.join(
-          ", "
-        )}.`,
+        `These members were already part of the board: ${alreadyMembers.join(", ")}.`,
         "info"
       );
     }
-
     if (invalidEmails.length) {
       showToast(
-        `These emails are invalid or do not exist: ${invalidEmails.join(
-          ", "
-        )}.`,
+        `These emails are invalid or do not exist: ${invalidEmails.join(", ")}.`,
         "warning"
       );
     }
@@ -384,8 +434,10 @@ function openRemoveDialog(email, displayName) {
 async function confirmRemoveMember() {
   try {
     await removeMemberAPI(boardId, memberToRemove.value);
+
     const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
+
     showToast("Member removed successfully.", "success");
   } catch (error) {
     showToast("Error removing member. Try again later.", "error");
@@ -428,7 +480,6 @@ async function onDragChange(evt, newColumnId) {
   if (evt.added) {
     const { element: task } = evt.added;
     const oldColumnId = task.columnId;
-
     if (oldColumnId && oldColumnId !== newColumnId) {
       try {
         await updateTaskAPI(boardId, task.id, { columnId: newColumnId });
@@ -442,9 +493,9 @@ async function onDragChange(evt, newColumnId) {
 
 async function onDragEnd() {
   try {
-    for (const tasks of Object.entries(tasksByColumn.value)) {
+    for (const [, tasksArray] of Object.entries(tasksByColumn.value)) {
       await Promise.all(
-        tasks.map((task, idx) => {
+        tasksArray.map((task, idx) => {
           task.order = idx;
           return updateTaskAPI(boardId, task.id, { order: idx });
         })

@@ -63,11 +63,17 @@ const io = socketIO(server);
 
 app.get('/listen/:boardId', (req, res) => {
   const { boardId } = req.params;
+  const boardRef = db.collection('boards').doc(boardId);
 
-  const taskRef = db.collection('boards').doc(boardId).collection('tasks');
+  boardRef.onSnapshot((boardSnap) => {
+    if (!boardSnap.exists) return;
+    const boardData = boardSnap.data();
+    io.emit('boardUpdated', boardData);
+  });
 
-  taskRef.onSnapshot(snapshot => {
-    snapshot.docChanges().forEach(change => {
+  const taskRef = boardRef.collection('tasks');
+  taskRef.onSnapshot((snapshot) => {
+    snapshot.docChanges().forEach((change) => {
       if (change.type === 'added') {
         io.emit('taskAdded', change.doc.data());
       }
@@ -80,24 +86,9 @@ app.get('/listen/:boardId', (req, res) => {
     });
   });
 
-  const usersRef = db.collection('boards').doc(boardId).collection('members');
-
-  usersRef.onSnapshot(snapshot => {
-    snapshot.docChanges().forEach(change => {
-      if (change.type === 'added') {
-        io.emit('memberAdded', change.doc.data());
-      }
-      if (change.type === 'modified') {
-        io.emit('memberModified', change.doc.data());
-      }
-      if (change.type === 'removed') {
-        io.emit('memberRemoved', change.doc.data());
-      }
-    });
-  });
-
   res.send(`Listening to changes for boardId: ${boardId}`);
 });
+
 
 const usersCollection = db.collection("users");
 

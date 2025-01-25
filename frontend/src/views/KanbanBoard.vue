@@ -182,7 +182,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
 import Draggable from "vuedraggable";
 import {
@@ -197,6 +197,9 @@ import {
   removeMember as removeMemberAPI,
 } from "@/api";
 import { useToast, showToast } from "@/utils/toast";
+
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
 
 const backendBaseUrl = "http://localhost:8081";
 const route = useRoute();
@@ -221,6 +224,33 @@ const memberToRemove = ref(null);
 const memberToRemoveName = ref("");
 
 onMounted(async () => {
+  const membersRef = collection(db, `boards/${boardId}/members`);
+  const columnsRef = collection(db, `boards/${boardId}/columns`);
+  const tasksRef = collection(db, `boards/${boardId}/tasks`);
+
+  const unsubscribeMembers = onSnapshot(membersRef, (snapshot) => {
+    members.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  });
+
+  const unsubscribeColumns = onSnapshot(columnsRef, (snapshot) => {
+    columns.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    tasksByColumn.value = columns.value.reduce((acc, col) => {
+      acc[col.id] = [];
+      return acc;
+    }, {});
+  });
+
+  const unsubscribeTasks = onSnapshot(tasksRef, (snapshot) => {
+    const tasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    tasksByColumn.value = tasks.reduce((acc, task) => {
+      if (!acc[task.columnId]) acc[task.columnId] = [];
+      acc[task.columnId].push(task);
+      return acc;
+    }, {});
+  });
+
+  initializeBoardListeners(boardId);
+
   try {
     const userData = await getProfile();
     const user = userData.user;
@@ -266,7 +296,22 @@ onMounted(async () => {
   } catch (error) {
     console.error("Error fetching board data:", error);
   }
+
+  onUnmounted(() => {
+    unsubscribeMembers();
+    unsubscribeColumns();
+    unsubscribeTasks();
+  });
 });
+
+async function initializeBoardListeners(boardId) {
+  try {
+    await fetch(`${backendBaseUrl}/listen/${boardId}`);
+    console.log("Listening to Firestore updates for board:", boardId);
+  } catch (error) {
+    console.error("Error setting up listeners:", error);
+  }
+}
 
 function toggleMembersPanel() {
   isMembersPanelExpanded.value = !isMembersPanelExpanded.value;

@@ -10,6 +10,9 @@ const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
 
+const http = require('http');
+const socketIO = require('socket.io');
+
 const app = express();
 const port = 8081;
 
@@ -53,6 +56,48 @@ app.use(cookieParser());
 if (!process.env.JWT_SECRET) {
   throw new Error("Missing JWT_SECRET environment variable");
 }
+
+const server = http.createServer(app);
+const io = socketIO(server);
+
+
+app.get('/listen/:boardId', (req, res) => {
+  const { boardId } = req.params;
+
+  const taskRef = db.collection('boards').doc(boardId).collection('tasks');
+
+  taskRef.onSnapshot(snapshot => {
+    snapshot.docChanges().forEach(change => {
+      if (change.type === 'added') {
+        io.emit('taskAdded', change.doc.data());
+      }
+      if (change.type === 'modified') {
+        io.emit('taskModified', change.doc.data());
+      }
+      if (change.type === 'removed') {
+        io.emit('taskRemoved', change.doc.data());
+      }
+    });
+  });
+
+  const usersRef = db.collection('boards').doc(boardId).collection('members');
+
+  usersRef.onSnapshot(snapshot => {
+    snapshot.docChanges().forEach(change => {
+      if (change.type === 'added') {
+        io.emit('memberAdded', change.doc.data());
+      }
+      if (change.type === 'modified') {
+        io.emit('memberModified', change.doc.data());
+      }
+      if (change.type === 'removed') {
+        io.emit('memberRemoved', change.doc.data());
+      }
+    });
+  });
+
+  res.send(`Listening to changes for boardId: ${boardId}`);
+});
 
 const usersCollection = db.collection("users");
 

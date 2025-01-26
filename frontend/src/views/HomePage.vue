@@ -8,7 +8,11 @@
               <v-icon left color="primary">mdi-view-kanban</v-icon>
               <span class="text-h5 font-weight-medium">Kanban Boards</span>
               <v-spacer></v-spacer>
-              <v-btn color="success" class="elevation-2" @click="openNewBoardDialog">
+              <v-btn
+                color="success"
+                class="elevation-2"
+                @click="openNewBoardDialog"
+              >
                 <v-icon left>mdi-plus</v-icon>
                 Create Board
               </v-btn>
@@ -27,12 +31,17 @@
                     @click="enterBoard(board.id)"
                   >
                     <v-card-title class="d-flex align-center">
-                      <v-icon left color="primary">mdi-clipboard-text-outline</v-icon>
+                      <v-icon left color="primary"
+                        >mdi-clipboard-text-outline</v-icon
+                      >
                       <span class="font-weight-medium">{{ board.name }}</span>
+
                       <v-spacer></v-spacer>
+
                       <v-btn
                         icon
                         text
+                        v-if="userData && board.ownerEmail === userData.email"
                         @click.stop="confirmDeleteBoard(board.id)"
                       >
                         <v-icon color="error">mdi-delete</v-icon>
@@ -81,7 +90,8 @@
         </v-card-title>
         <v-divider></v-divider>
         <v-card-text>
-          Are you sure you want to delete this board? This action cannot be undone.
+          Are you sure you want to delete this board? This action cannot be
+          undone.
         </v-card-text>
         <v-card-actions>
           <v-btn text color="error" @click="deleteConfirmedBoard">Delete</v-btn>
@@ -105,45 +115,67 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
+
 import {
-  getBoards,
+  getProfile,
   createBoard as createBoardAPI,
   deleteBoard as deleteBoardAPI,
-  getProfile,
-} from "../api";
+} from "@/api";
+
+import { db } from "@/firebase";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+
 import { useToast, showToast } from "@/utils/toast";
 
 const router = useRouter();
+const toast = useToast();
+
 const boards = ref([]);
+const userData = ref(null);
 const isDialogOpen = ref(false);
 const newBoardName = ref("");
 const inviteEmails = ref("");
 const confirmDeleteDialog = ref(false);
 const boardToDelete = ref(null);
-const userData = ref("");
-const toast = useToast();
+
+let unsubscribeBoards = null;
 
 onMounted(async () => {
-  userData.value = (await getProfile()).user;
-  fetchBoards();
+  try {
+    const profile = await getProfile();
+    userData.value = profile.user;
+
+    const boardsCollection = collection(db, "boards");
+    const q = query(
+      boardsCollection,
+      where("members", "array-contains", userData.value.email)
+    );
+
+    unsubscribeBoards = onSnapshot(q, (snapshot) => {
+      const boardDocs = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      boards.value = boardDocs;
+    });
+  } catch (error) {
+    console.error("Error initializing boards listener:", error);
+    showToast("Error loading boards.", "error");
+  }
 });
 
-async function fetchBoards() {
-  try {
-    const data = await getBoards();
-    boards.value = data;
-  } catch (error) {
-    console.error("Error fetching boards:", error);
-    showToast("Error fetching boards.", "error");
+onUnmounted(() => {
+  if (unsubscribeBoards) {
+    unsubscribeBoards();
   }
-}
+});
 
 function openNewBoardDialog() {
   isDialogOpen.value = true;
 }
-
 function closeDialog() {
   isDialogOpen.value = false;
   newBoardName.value = "";
@@ -154,11 +186,9 @@ function confirmDeleteBoard(boardId) {
   boardToDelete.value = boardId;
   confirmDeleteDialog.value = true;
 }
-
 async function deleteConfirmedBoard() {
   try {
     await deleteBoardAPI(boardToDelete.value);
-    await fetchBoards();
     confirmDeleteDialog.value = false;
     showToast("Board deleted successfully.", "success");
   } catch (error) {
@@ -187,13 +217,14 @@ async function createBoard() {
       invitedUsers: invitedArray,
       ownerEmail: userData.value.email,
     });
-    await fetchBoards();
     closeDialog();
     showToast("Board created successfully.", "success");
   } catch (error) {
     if (error.response?.status === 400 && error.response.data?.invalidEmails) {
       showToast(
-        `Some emails are invalid: ${error.response.data.invalidEmails.join(", ")}`,
+        `Some emails are invalid: ${error.response.data.invalidEmails.join(
+          ", "
+        )}`,
         "warning"
       );
     } else {
@@ -213,7 +244,6 @@ function enterBoard(boardId) {
   cursor: pointer;
   transition: box-shadow 0.3s, transform 0.3s;
 }
-
 .board-item:hover {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   transform: translateY(-2px);

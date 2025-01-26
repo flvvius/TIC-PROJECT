@@ -21,7 +21,9 @@
               :aria-label="isMembersPanelExpanded ? 'Collapse' : 'Expand'"
             >
               <v-icon>
-                {{ isMembersPanelExpanded ? "mdi-chevron-up" : "mdi-chevron-down" }}
+                {{
+                  isMembersPanelExpanded ? "mdi-chevron-up" : "mdi-chevron-down"
+                }}
               </v-icon>
             </v-btn>
           </v-card-title>
@@ -49,7 +51,9 @@
                     <v-list-item-title class="font-weight-medium">
                       {{ member.displayName || "Anonymous" }}
                     </v-list-item-title>
-                    <v-list-item-subtitle>{{ member.email }}</v-list-item-subtitle>
+                    <v-list-item-subtitle>{{
+                      member.email
+                    }}</v-list-item-subtitle>
                   </v-col>
                   <v-col cols="auto">
                     <v-btn
@@ -58,7 +62,9 @@
                       color="error"
                       style="margin-left: 8px; transform: scale(0.8)"
                       v-if="isBoardOwner && member.email !== boardOwnerEmail"
-                      @click="openRemoveDialog(member.email, member.displayName)"
+                      @click="
+                        openRemoveDialog(member.email, member.displayName)
+                      "
                     >
                       <v-icon>mdi-delete</v-icon>
                     </v-btn>
@@ -94,13 +100,44 @@
                   :list="tasksByColumn[column.id]"
                   item-key="id"
                   group="tasks"
-                  @change="(evt) => onDragChange(evt, column.id)"
                   @end="onDragEnd"
                 >
-                  <template #item="{ element }">
-                    <v-list-item class="py-1">
-                      <v-list-item-title>{{ element.title }}</v-list-item-title>
-                    </v-list-item>
+                  <template #item="{ element: task }">
+                    <v-sheet
+                      elevation="1"
+                      rounded
+                      class="mb-2 pa-2 d-flex align-center justify-space-between"
+                      style="background-color: #fafafa"
+                    >
+                      <span class="text-body-1 font-weight-medium">{{
+                        task.title
+                      }}</span>
+
+                      <v-menu
+                        activator="parent"
+                        close-on-content-click
+                        offset-x
+                        :nudge-left="10"
+                      >
+                        <template #activator="{ props }">
+                          <v-btn icon size="small" v-bind="props">
+                            <v-icon>mdi-dots-vertical</v-icon>
+                          </v-btn>
+                        </template>
+
+                        <v-list>
+                          <v-list-item
+                            v-for="col in filteredColumns(task)"
+                            :key="col.id"
+                            @click="moveTask(task, col.id)"
+                          >
+                            <v-list-item-title
+                              >Move to {{ col.title }}</v-list-item-title
+                            >
+                          </v-list-item>
+                        </v-list>
+                      </v-menu>
+                    </v-sheet>
                   </template>
                 </Draggable>
               </v-card-text>
@@ -201,7 +238,7 @@ import {
   onSnapshot,
   query,
   where,
-  getDocs
+  getDocs,
 } from "firebase/firestore";
 
 import { db } from "@/firebase";
@@ -285,7 +322,9 @@ onMounted(async () => {
 
     const columnsRef = collection(db, `boards/${boardId}/columns`);
     unsubscribeColumns = onSnapshot(columnsRef, (snapshot) => {
-      columns.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      let cols = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      cols.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      columns.value = cols;
       tasksByColumn.value = columns.value.reduce((acc, col) => {
         acc[col.id] = [];
         return acc;
@@ -305,7 +344,9 @@ onMounted(async () => {
       });
 
       for (const columnId in newTasksByColumn) {
-        newTasksByColumn[columnId].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        newTasksByColumn[columnId].sort(
+          (a, b) => (a.order ?? 0) - (b.order ?? 0)
+        );
       }
 
       tasksByColumn.value = newTasksByColumn;
@@ -347,7 +388,9 @@ onMounted(async () => {
     });
 
     for (const colId in tasksByColumn.value) {
-      tasksByColumn.value[colId].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      tasksByColumn.value[colId].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0)
+      );
     }
   } catch (error) {
     console.error("Error fetching board data:", error);
@@ -396,13 +439,17 @@ async function inviteMembers() {
     }
     if (alreadyMembers.length) {
       showToast(
-        `These members were already part of the board: ${alreadyMembers.join(", ")}.`,
+        `These members were already part of the board: ${alreadyMembers.join(
+          ", "
+        )}.`,
         "info"
       );
     }
     if (invalidEmails.length) {
       showToast(
-        `These emails are invalid or do not exist: ${invalidEmails.join(", ")}.`,
+        `These emails are invalid or do not exist: ${invalidEmails.join(
+          ", "
+        )}.`,
         "warning"
       );
     }
@@ -446,6 +493,23 @@ async function confirmRemoveMember() {
   }
 }
 
+async function moveTask(task, newColumnId) {
+  try {
+    await updateTaskAPI(boardId, task.id, { columnId: newColumnId });
+    const newOrder = tasksByColumn.value[newColumnId]?.length || 0;
+    await updateTaskAPI(boardId, task.id, {
+      columnId: newColumnId,
+      order: newOrder,
+    });
+  } catch (error) {
+    console.error("Error moving task:", error);
+  }
+}
+
+function filteredColumns(task) {
+  return columns.value.filter((col) => col.id !== task.columnId);
+}
+
 function openNewTaskDialog(columnId) {
   activeColumnId.value = columnId;
   isDialogOpen.value = true;
@@ -476,33 +540,24 @@ async function createTask() {
   }
 }
 
-async function onDragChange(evt, newColumnId) {
-  if (evt.added) {
-    const { element: task } = evt.added;
-    const oldColumnId = task.columnId;
-    if (oldColumnId && oldColumnId !== newColumnId) {
-      try {
-        await updateTaskAPI(boardId, task.id, { columnId: newColumnId });
-        task.columnId = newColumnId;
-      } catch (error) {
-        console.error("Error moving task to new column:", error);
-      }
-    }
-  }
-}
-
 async function onDragEnd() {
   try {
-    for (const [, tasksArray] of Object.entries(tasksByColumn.value)) {
+    for (const [columnId, tasksArray] of Object.entries(tasksByColumn.value)) {
       await Promise.all(
         tasksArray.map((task, idx) => {
+          task.columnId = columnId;
           task.order = idx;
-          return updateTaskAPI(boardId, task.id, { order: idx });
+
+          return updateTaskAPI(boardId, task.id, {
+            columnId,
+            order: idx,
+          });
         })
       );
     }
+    // window.location.reload(); // possible, but annoying
   } catch (error) {
-    console.error("Error updating task order:", error);
+    console.error("Error updating task order or column:", error);
   }
 }
 </script>

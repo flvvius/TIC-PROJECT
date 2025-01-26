@@ -186,6 +186,7 @@ function confirmDeleteBoard(boardId) {
   boardToDelete.value = boardId;
   confirmDeleteDialog.value = true;
 }
+
 async function deleteConfirmedBoard() {
   try {
     await deleteBoardAPI(boardToDelete.value);

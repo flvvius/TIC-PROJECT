@@ -364,13 +364,30 @@ app.get("/api/boards/:boardId", authMiddleware, async (req, res) => {
 app.delete("/api/boards/:boardId", authMiddleware, async (req, res) => {
   try {
     const boardId = req.params.boardId;
-    await db.collection("boards").doc(boardId).delete();
+    const userEmail = req.user.email;
+
+    const boardRef = db.collection("boards").doc(boardId);
+    const boardSnap = await boardRef.get();
+
+    if (!boardSnap.exists) {
+      return res.status(404).json({ error: "Board not found." });
+    }
+
+    const boardData = boardSnap.data();
+
+    if (boardData.ownerEmail !== userEmail) {
+      return res.status(403).json({ error: "You are not the owner of this board." });
+    }
+
+    await boardRef.delete();
     res.json({ message: `Board ${boardId} deleted.` });
+
   } catch (error) {
     console.error("Error deleting board:", error);
     res.status(500).json({ error: "Failed to delete board." });
   }
 });
+
 
 app.get("/api/boards/:boardId/columns", authMiddleware, async (req, res) => {
   try {

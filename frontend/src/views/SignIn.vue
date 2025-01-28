@@ -46,15 +46,13 @@ const handleLogin = async () => {
   error.value = null;
 
   try {
-    const response = await loginUser(email.value, password.value);
-    console.log("Login response:", response);
+    await loginUser(email.value, password.value);
 
     const token = Cookies.get("token");
     if (!token) {
       throw new Error("Token not set in cookies");
     }
 
-    console.log("Token set in cookie:", token);
     updateAuthState();
     router.push("/");
   } catch (err) {

@@ -4,16 +4,17 @@
       <v-col cols="12" md="8" lg="6">
         <v-card elevation="3" class="mb-4">
           <v-card-title>
-            <v-icon left color="primary">mdi-account-multiple</v-icon> Board
-            Members
-            <v-spacer></v-spacer>
+            <v-icon left color="primary">mdi-account-multiple</v-icon>
+            Board Members
+            <v-spacer />
             <v-btn
               color="primary"
               v-if="isBoardOwner"
               @click="openInviteDialog"
               class="ma-2"
             >
-              <v-icon left>mdi-plus</v-icon> Invite
+              <v-icon left>mdi-plus</v-icon>
+              Invite
             </v-btn>
             <v-btn
               icon
@@ -27,7 +28,7 @@
               </v-icon>
             </v-btn>
           </v-card-title>
-          <v-divider></v-divider>
+          <v-divider />
           <v-card-text v-if="isMembersPanelExpanded">
             <v-list>
               <v-list-item
@@ -44,7 +45,7 @@
                             ? `${backendBaseUrl}/${member.profilePicture}`
                             : 'http://localhost:8081/uploads/default-avatar.png'
                         "
-                      ></v-img>
+                      />
                     </v-avatar>
                   </v-col>
                   <v-col>
@@ -86,6 +87,7 @@
             cols="12"
             md="4"
             class="mb-4"
+            :data-column-id="column.id"
           >
             <v-card elevation="2">
               <v-card-title class="d-flex justify-space-between">
@@ -94,12 +96,13 @@
                   <v-icon>mdi-plus</v-icon>
                 </v-btn>
               </v-card-title>
-              <v-divider></v-divider>
+              <v-divider />
               <v-card-text>
                 <Draggable
                   :list="tasksByColumn[column.id]"
                   item-key="id"
                   group="tasks"
+                  @start="onDragStart"
                   @end="onDragEnd"
                 >
                   <template #item="{ element: task }">
@@ -109,9 +112,9 @@
                       class="mb-2 pa-2 d-flex align-center justify-space-between"
                       style="background-color: #fafafa"
                     >
-                      <span class="text-body-1 font-weight-medium">{{
-                        task.title
-                      }}</span>
+                      <span class="text-body-1 font-weight-medium">
+                        {{ task.title }}
+                      </span>
 
                       <v-menu
                         activator="parent"
@@ -124,16 +127,21 @@
                             <v-icon>mdi-dots-vertical</v-icon>
                           </v-btn>
                         </template>
-
                         <v-list>
                           <v-list-item
-                            v-for="col in filteredColumns(task)"
+                            v-for="col in filteredColumns(column.id)"
                             :key="col.id"
-                            @click="moveTask(task, col.id)"
+                            @click="moveTask(task, column.id, col.id)"
                           >
                             <v-list-item-title
                               >Move to {{ col.title }}</v-list-item-title
                             >
+                          </v-list-item>
+
+                          <v-list-item
+                            @click="deleteTaskInColumn(column.id, task.id)"
+                          >
+                            <v-list-item-title>Delete Task</v-list-item-title>
                           </v-list-item>
                         </v-list>
                       </v-menu>
@@ -150,7 +158,7 @@
     <v-dialog v-model="isDialogOpen" max-width="500px">
       <v-card>
         <v-card-title>Add a New Task</v-card-title>
-        <v-divider></v-divider>
+        <v-divider />
         <v-card-text>
           <v-text-field
             v-model="newTaskTitle"
@@ -169,12 +177,12 @@
     <v-dialog v-model="inviteDialogOpen" max-width="500px">
       <v-card>
         <v-card-title>Invite Members</v-card-title>
-        <v-divider></v-divider>
+        <v-divider />
         <v-card-text>
           <v-text-field
             v-model="invitedEmails"
             label="Enter emails (comma-separated)"
-            placeholder="example1@mail.com, example2@mail.com"
+            placeholder="user1@example.com, user2@example.com"
             outlined
           />
         </v-card-text>
@@ -188,10 +196,11 @@
     <v-dialog v-model="isRemoveDialogOpen" max-width="400px">
       <v-card>
         <v-card-title class="text-h6">Confirm Member Removal</v-card-title>
-        <v-divider></v-divider>
+        <v-divider />
         <v-card-text>
           Are you sure you want to remove
-          <strong>{{ memberToRemoveName }}</strong> from the board?
+          <strong>{{ memberToRemoveName }}</strong>
+          from the board?
         </v-card-text>
         <v-card-actions>
           <v-btn color="error" text @click="confirmRemoveMember">Remove</v-btn>
@@ -223,46 +232,37 @@ import {
   getBoard,
   getColumns,
   createOrUpdateColumn,
-  getTasks,
+  createTaskInColumn,
+  updateTaskInColumn,
+  deleteTaskInColumn as deleteTaskInColumnAPI,
   getProfile,
-  createTask as createTaskAPI,
-  updateTask as updateTaskAPI,
   inviteMembers as inviteMembersAPI,
   removeMember as removeMemberAPI,
 } from "@/api";
+
 import { useToast, showToast } from "@/utils/toast";
-
-import {
-  doc,
-  collection,
-  onSnapshot,
-  query,
-  where,
-  getDocs,
-} from "firebase/firestore";
-
+import { doc, collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/firebase";
 
 const backendBaseUrl = "http://localhost:8081";
 const route = useRoute();
 const router = useRouter();
-
 const boardId = route.params.boardId;
 const toast = useToast();
 
 const members = ref([]);
-const inviteDialogOpen = ref(false);
-const invitedEmails = ref("");
-const isMembersPanelExpanded = ref(false);
-
 const columns = ref([]);
 const tasksByColumn = ref({});
-const isDialogOpen = ref(false);
-const newTaskTitle = ref("");
-const activeColumnId = ref(null);
+
+const isMembersPanelExpanded = ref(false);
 const isBoardOwner = ref(false);
 const boardOwnerEmail = ref(null);
 
+const inviteDialogOpen = ref(false);
+const invitedEmails = ref("");
+const isDialogOpen = ref(false);
+const newTaskTitle = ref("");
+const activeColumnId = ref(null);
 const isRemoveDialogOpen = ref(false);
 const memberToRemove = ref(null);
 const memberToRemoveName = ref("");
@@ -271,7 +271,9 @@ const currentUserEmail = ref("");
 
 let unsubscribeBoard = null;
 let unsubscribeColumns = null;
-let unsubscribeTasks = null;
+let columnTasksUnsubs = [];
+
+const draggingTask = ref(null);
 
 onMounted(async () => {
   try {
@@ -279,134 +281,101 @@ onMounted(async () => {
     currentUserEmail.value = userData.user.email;
 
     const boardDocRef = doc(db, "boards", boardId);
-    unsubscribeBoard = onSnapshot(boardDocRef, async (snapshot) => {
+    unsubscribeBoard = onSnapshot(boardDocRef, (snapshot) => {
       if (!snapshot.exists()) {
         showToast("This board no longer exists.", "warning");
         router.push("/");
         return;
       }
-
       const boardData = snapshot.data();
       const memberEmails = boardData?.members || [];
-
       if (!memberEmails.includes(currentUserEmail.value)) {
         showToast("You have been removed from the board.", "warning");
         router.push("/");
         return;
       }
-
-      const fetchedMembers = await Promise.all(
-        memberEmails.map(async (email) => {
-          const q = query(collection(db, "users"), where("email", "==", email));
-          const userSnap = await getDocs(q);
-          if (!userSnap.empty) {
-            const userDoc = userSnap.docs[0];
-            return {
-              email,
-              displayName: userDoc.data().displayName || "Anonymous",
-              profilePicture: userDoc.data().profilePicture || null,
-            };
-          }
-          return {
-            email,
-            displayName: "Unknown",
-            profilePicture: null,
-          };
-        })
-      );
-      members.value = fetchedMembers;
-
       isBoardOwner.value = boardData.ownerEmail === currentUserEmail.value;
       boardOwnerEmail.value = boardData.ownerEmail;
     });
 
-    const columnsRef = collection(db, `boards/${boardId}/columns`);
-    unsubscribeColumns = onSnapshot(columnsRef, (snapshot) => {
-      let cols = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      cols.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      columns.value = cols;
-      tasksByColumn.value = columns.value.reduce((acc, col) => {
-        acc[col.id] = [];
-        return acc;
-      }, {});
-    });
+    const columnsRef = collection(db, "boards", boardId, "columns");
+    unsubscribeColumns = onSnapshot(columnsRef, async (snapshot) => {
+      const newCols = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      newCols.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      columns.value = newCols;
 
-    const tasksRef = collection(db, `boards/${boardId}/tasks`);
-    unsubscribeTasks = onSnapshot(tasksRef, (snapshot) => {
-      const tasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const newTasksByColumn = {};
-
-      tasks.forEach((task) => {
-        if (!newTasksByColumn[task.columnId]) {
-          newTasksByColumn[task.columnId] = [];
-        }
-        newTasksByColumn[task.columnId].push(task);
-      });
-
-      for (const columnId in newTasksByColumn) {
-        newTasksByColumn[columnId].sort(
-          (a, b) => (a.order ?? 0) - (b.order ?? 0)
-        );
+      cleanupColumnTasksWatchers();
+      tasksByColumn.value = {};
+      for (const col of newCols) {
+        tasksByColumn.value[col.id] = [];
+        watchTasksOfColumn(col.id);
       }
-
-      tasksByColumn.value = newTasksByColumn;
     });
-
-    initializeBoardListeners(boardId);
 
     const boardData = await getBoard(boardId);
     members.value = boardData.members;
     isBoardOwner.value = boardData.ownerEmail === currentUserEmail.value;
     boardOwnerEmail.value = boardData.ownerEmail;
 
-    let columnsData = await getColumns(boardId);
-    if (!columnsData || !columnsData.length) {
-      columnsData = [
+    let cols = await getColumns(boardId);
+    if (!cols || !cols.length) {
+      cols = [
         { id: "todo", title: "To Do", order: 0 },
         { id: "in-progress", title: "In Progress", order: 1 },
         { id: "done", title: "Done", order: 2 },
       ];
-      for (const col of columnsData) {
+      for (const col of cols) {
         await createOrUpdateColumn(boardId, col.id, {
           title: col.title,
           order: col.order,
         });
       }
     }
-    columns.value = columnsData;
+    columns.value = cols;
+    columns.value.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-    tasksByColumn.value = columns.value.reduce((acc, col) => {
-      acc[col.id] = [];
-      return acc;
-    }, {});
-
-    const tasksData = await getTasks(boardId);
-    tasksData.forEach((task) => {
-      if (task.columnId && tasksByColumn.value[task.columnId]) {
-        tasksByColumn.value[task.columnId].push(task);
-      }
-    });
-
-    for (const colId in tasksByColumn.value) {
-      tasksByColumn.value[colId].sort(
-        (a, b) => (a.order ?? 0) - (b.order ?? 0)
-      );
+    tasksByColumn.value = {};
+    for (const col of columns.value) {
+      tasksByColumn.value[col.id] = [];
+      watchTasksOfColumn(col.id);
     }
+
+    initializeBoardListeners(boardId);
   } catch (error) {
-    console.error("Error fetching board data:", error);
+    console.error("Error setting up board:", error);
   }
 });
 
 onUnmounted(() => {
   if (unsubscribeBoard) unsubscribeBoard();
   if (unsubscribeColumns) unsubscribeColumns();
-  if (unsubscribeTasks) unsubscribeTasks();
+  cleanupColumnTasksWatchers();
 });
+
+function watchTasksOfColumn(colId) {
+  const tasksRef = collection(db, "boards", boardId, "columns", colId, "tasks");
+  const unsub = onSnapshot(tasksRef, (snap) => {
+    let tasks = snap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    tasks.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    tasksByColumn.value[colId] = tasks;
+  });
+  columnTasksUnsubs.push(unsub);
+}
+
+function cleanupColumnTasksWatchers() {
+  columnTasksUnsubs.forEach((unsub) => unsub && unsub());
+  columnTasksUnsubs = [];
+}
 
 async function initializeBoardListeners(boardId) {
   try {
     await fetch(`${backendBaseUrl}/listen/${boardId}`);
-    console.log("Listening to Firestore updates for board:", boardId);
   } catch (error) {
     console.error("Error setting up listeners:", error);
   }
@@ -416,12 +385,19 @@ function toggleMembersPanel() {
   isMembersPanelExpanded.value = !isMembersPanelExpanded.value;
 }
 
+function openInviteDialog() {
+  inviteDialogOpen.value = true;
+}
+function closeInviteDialog() {
+  inviteDialogOpen.value = false;
+  invitedEmails.value = "";
+}
+
 async function inviteMembers() {
   if (!invitedEmails.value.trim()) {
     showToast("Please enter at least one email.", "warning");
     return;
   }
-
   const emailList = invitedEmails.value
     .split(",")
     .map((email) => email.trim())
@@ -463,15 +439,6 @@ async function inviteMembers() {
   }
 }
 
-function closeInviteDialog() {
-  inviteDialogOpen.value = false;
-  invitedEmails.value = "";
-}
-
-function openInviteDialog() {
-  inviteDialogOpen.value = true;
-}
-
 function openRemoveDialog(email, displayName) {
   memberToRemove.value = email;
   memberToRemoveName.value = displayName || "this member";
@@ -481,10 +448,8 @@ function openRemoveDialog(email, displayName) {
 async function confirmRemoveMember() {
   try {
     await removeMemberAPI(boardId, memberToRemove.value);
-
     const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
-
     showToast("Member removed successfully.", "success");
   } catch (error) {
     showToast("Error removing member. Try again later.", "error");
@@ -493,21 +458,64 @@ async function confirmRemoveMember() {
   }
 }
 
-async function moveTask(task, newColumnId) {
+async function moveTask(task, oldColumnId, newColumnId) {
   try {
-    await updateTaskAPI(boardId, task.id, { columnId: newColumnId });
+    await deleteTaskInColumnAPI(boardId, oldColumnId, task.id);
+
     const newOrder = tasksByColumn.value[newColumnId]?.length || 0;
-    await updateTaskAPI(boardId, task.id, {
-      columnId: newColumnId,
+    await createTaskInColumn(boardId, newColumnId, {
+      title: task.title,
       order: newOrder,
     });
   } catch (error) {
     console.error("Error moving task:", error);
+    showToast("Failed to move task.", "error");
   }
 }
 
-function filteredColumns(task) {
-  return columns.value.filter((col) => col.id !== task.columnId);
+function onDragStart(evt) {
+  const { from } = evt;
+
+  const columnId = from.closest("[data-column-id]")?.dataset.columnId;
+
+  draggingTask.value = {
+    oldColumnId: columnId,
+  };
+}
+
+async function onDragEnd(evt) {
+  try {
+    const { to, newIndex } = evt;
+
+    const oldColumnId = draggingTask.value.oldColumnId;
+
+    const newColumnId = to.closest("[data-column-id]")?.dataset.columnId;
+
+    const task = tasksByColumn.value[newColumnId][newIndex];
+
+    if (!oldColumnId || !newColumnId) {
+      console.error("Column IDs missing:", { oldColumnId, newColumnId });
+      return;
+    }
+
+    if (oldColumnId !== newColumnId) {
+      await deleteTaskInColumnAPI(boardId, oldColumnId, task.id);
+
+      const taskData = { ...task, columnId: newColumnId, order: newIndex };
+      await createTaskInColumn(boardId, newColumnId, taskData);
+    } else {
+      await updateTaskInColumn(boardId, oldColumnId, task.id, { order: newIndex });
+    }
+
+   } catch (error) {
+    console.error("Error in onDragEnd:", error);
+  } finally {
+    draggingTask.value = null;
+  }
+}
+
+function filteredColumns(currentColId) {
+  return columns.value.filter((c) => c.id !== currentColId);
 }
 
 function openNewTaskDialog(columnId) {
@@ -525,39 +533,25 @@ async function createTask() {
   if (!newTaskTitle.value.trim() || !activeColumnId.value) return;
 
   const newOrder = tasksByColumn.value[activeColumnId.value].length;
-  const taskData = {
-    title: newTaskTitle.value,
-    columnId: activeColumnId.value,
-    order: newOrder,
-  };
-
   try {
-    const createdTask = await createTaskAPI(boardId, taskData);
-    tasksByColumn.value[activeColumnId.value].push(createdTask);
+    await createTaskInColumn(boardId, activeColumnId.value, {
+      title: newTaskTitle.value,
+      order: newOrder,
+    });
     closeDialog();
   } catch (error) {
     console.error("Error creating task:", error);
+    showToast("Failed to create task.", "error");
   }
 }
 
-async function onDragEnd() {
+async function deleteTaskInColumn(colId, taskId) {
   try {
-    for (const [columnId, tasksArray] of Object.entries(tasksByColumn.value)) {
-      await Promise.all(
-        tasksArray.map((task, idx) => {
-          task.columnId = columnId;
-          task.order = idx;
-
-          return updateTaskAPI(boardId, task.id, {
-            columnId,
-            order: idx,
-          });
-        })
-      );
-    }
-    // window.location.reload(); // possible, but annoying
+    await deleteTaskInColumnAPI(boardId, colId, taskId);
+    showToast("Task deleted successfully.", "success");
   } catch (error) {
-    console.error("Error updating task order or column:", error);
+    console.error("Error deleting task:", error);
+    showToast("Failed to delete task.", "error");
   }
 }
 </script>

@@ -16,7 +16,6 @@ function checkAuth() {
   if (token) {
     try {
       const decoded = JSON.parse(atob(token.split(".")[1]));
-      console.log("Decoded token:", decoded);
       updateAuthState();
       return decoded.uid;
     } catch (error) {

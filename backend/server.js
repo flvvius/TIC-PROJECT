@@ -22,7 +22,6 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
   }
 }));
 
-console.log("Static files being served from:", path.join(__dirname, "uploads"));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -60,7 +59,6 @@ if (!process.env.JWT_SECRET) {
 const server = http.createServer(app);
 const io = socketIO(server);
 
-
 app.get('/listen/:boardId', (req, res) => {
   const { boardId } = req.params;
   const boardRef = db.collection('boards').doc(boardId);
@@ -68,27 +66,80 @@ app.get('/listen/:boardId', (req, res) => {
   boardRef.onSnapshot((boardSnap) => {
     if (!boardSnap.exists) return;
     const boardData = boardSnap.data();
-    io.emit('boardUpdated', boardData);
+    io.emit('boardUpdated', {
+      id: boardSnap.id,
+      ...boardData
+    });
   });
 
-  const taskRef = boardRef.collection('tasks');
-  taskRef.onSnapshot((snapshot) => {
-    snapshot.docChanges().forEach((change) => {
-      if (change.type === 'added') {
-        io.emit('taskAdded', change.doc.data());
+  const columnsRef = boardRef.collection('columns');
+  columnsRef.onSnapshot((colSnap) => {
+    colSnap.docChanges().forEach((colChange) => {
+      const colId = colChange.doc.id;
+      const colData = colChange.doc.data();
+
+      if (colChange.type === 'added') {
+        io.emit('columnAdded', { id: colId, ...colData });
+        watchTasksSubcollection(boardId, colId);
       }
-      if (change.type === 'modified') {
-        io.emit('taskModified', change.doc.data());
+      else if (colChange.type === 'modified') {
+        io.emit('columnModified', { id: colId, ...colData });
       }
-      if (change.type === 'removed') {
-        io.emit('taskRemoved', change.doc.data());
+      else if (colChange.type === 'removed') {
+        io.emit('columnRemoved', { id: colId, ...colData });
       }
+    });
+  });
+
+  columnsRef.get().then((colSnap) => {
+    colSnap.forEach((doc) => {
+      watchTasksSubcollection(boardId, doc.id);
     });
   });
 
   res.send(`Listening to changes for boardId: ${boardId}`);
 });
 
+function watchTasksSubcollection(boardId, colId) {
+  const tasksRef = db
+    .collection('boards')
+    .doc(boardId)
+    .collection('columns')
+    .doc(colId)
+    .collection('tasks');
+
+  tasksRef.onSnapshot((tasksSnap) => {
+    tasksSnap.docChanges().forEach((change) => {
+      const taskId = change.doc.id;
+      const taskData = change.doc.data();
+
+      if (change.type === 'added') {
+        io.emit('taskAdded', {
+          boardId,
+          columnId: colId,
+          id: taskId,
+          ...taskData,
+        });
+      }
+      else if (change.type === 'modified') {
+        io.emit('taskModified', {
+          boardId,
+          columnId: colId,
+          id: taskId,
+          ...taskData,
+        });
+      }
+      else if (change.type === 'removed') {
+        io.emit('taskRemoved', {
+          boardId,
+          columnId: colId,
+          id: taskId,
+          ...taskData,
+        });
+      }
+    });
+  });
+}
 
 const usersCollection = db.collection("users");
 
@@ -105,7 +156,6 @@ function setTokenCookie(res, payload) {
 
 function authMiddleware(req, res, next) {
   const token = req.cookies.token;
-  console.log("AuthMiddleware - Received token:", token);
 
   if (!token) {
     return res.status(401).json({ error: "No token. Please log in." });
@@ -113,7 +163,6 @@ function authMiddleware(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("AuthMiddleware - Token decoded:", decoded);
     req.user = decoded;
     next();
   } catch (error) {
@@ -339,7 +388,6 @@ app.get("/api/boards/:boardId", authMiddleware, async (req, res) => {
 
     for (const email of boardData.members || []) {
       const userSnap = await usersCollection.where("email", "==", email).get();
-      console.log("USER SNAP:          " + userSnap.docs[0].data()["email"])
       if (userSnap.docs[0].data()) {
         membersDetails.push({
           email,
@@ -347,9 +395,6 @@ app.get("/api/boards/:boardId", authMiddleware, async (req, res) => {
         });
       }
     }
-
-    console.log("BOARD DATA:         " + boardData.members)
-    console.log("MEMBER DETAILS:     " + membersDetails[0].email)
 
     res.json({
       ...boardData,
@@ -427,65 +472,101 @@ app.post("/api/boards/:boardId/columns/:colId", authMiddleware, async (req, res)
   }
 });
 
-app.get("/api/boards/:boardId/tasks", authMiddleware, async (req, res) => {
+app.get("/api/boards/:boardId/columns/:colId/tasks", authMiddleware, async (req, res) => {
   try {
-    const boardId = req.params.boardId;
-    const tasksRef = db.collection("boards").doc(boardId).collection("tasks");
-    const tasksSnap = await tasksRef.orderBy("order").get();
+    const { boardId, colId } = req.params;
 
-    const tasks = tasksSnap.docs.map((doc) => ({
+    const tasksRef = db
+      .collection("boards")
+      .doc(boardId)
+      .collection("columns")
+      .doc(colId)
+      .collection("tasks");
+
+    const tasksSnap = await tasksRef.get();
+
+    const tasks = tasksSnap.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
     }));
+
     res.json(tasks);
   } catch (error) {
-    console.error("Error fetching tasks:", error);
+    console.error("Error fetching tasks in column:", error);
     res.status(500).json({ error: "Failed to fetch tasks." });
   }
 });
 
-app.post("/api/boards/:boardId/tasks", authMiddleware, async (req, res) => {
+app.post("/api/boards/:boardId/columns/:colId/tasks", authMiddleware, async (req, res) => {
   try {
-    const boardId = req.params.boardId;
-    const { title, columnId, order } = req.body;
+    const { boardId, colId } = req.params;
+    const { title, order } = req.body;
 
-    const tasksRef = db.collection("boards").doc(boardId).collection("tasks");
+    const tasksRef = db
+      .collection("boards")
+      .doc(boardId)
+      .collection("columns")
+      .doc(colId)
+      .collection("tasks");
+
     const newTaskRef = await tasksRef.add({
       title,
-      columnId,
-      order,
+      order: order ?? 0,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     res.status(201).json({
       id: newTaskRef.id,
       title,
-      columnId,
-      order,
+      order: order ?? 0,
       createdAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("Error creating task:", error);
+    console.error("Error creating task in column:", error);
     res.status(500).json({ error: "Failed to create task." });
   }
 });
 
-app.patch("/api/boards/:boardId/tasks/:taskId", authMiddleware, async (req, res) => {
+app.patch("/api/boards/:boardId/columns/:colId/tasks/:taskId", authMiddleware, async (req, res) => {
   try {
-    const { boardId, taskId } = req.params;
+    const { boardId, colId, taskId } = req.params;
     const updates = req.body;
 
     const taskRef = db
       .collection("boards")
       .doc(boardId)
+      .collection("columns")
+      .doc(colId)
       .collection("tasks")
       .doc(taskId);
 
     await taskRef.update(updates);
-    res.json({ message: `Task ${taskId} updated.` });
+
+    res.json({ message: `Task ${taskId} in column ${colId} updated.` });
   } catch (error) {
-    console.error("Error updating task:", error);
+    console.error("Error updating task in column:", error);
     res.status(500).json({ error: "Failed to update task." });
+  }
+});
+
+app.delete("/api/boards/:boardId/columns/:colId/tasks/:taskId", authMiddleware, async (req, res) => {
+  try {
+    const { boardId, colId, taskId } = req.params;
+
+    const taskRef = db
+      .collection("boards")
+      .doc(boardId)
+      .collection("columns")
+      .doc(colId)
+      .collection("tasks")
+      .doc(taskId);
+
+    await taskRef.delete();
+
+    res.json({ message: `Task ${taskId} in column ${colId} deleted.` });
+  } catch (error) {
+    console.error("Error deleting task:", error);
+    res.status(500).json({ error: "Failed to delete task." });
   }
 });
 

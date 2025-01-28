@@ -26,25 +26,34 @@ export const logoutUser = async () => {
   return response.data;
 };
 
+export const getProfile = async () => {
+  const response = await api.get("/profile");
+  return response.data;
+};
+
+export const updateProfile = async (data) => {
+  const response = await api.post("/api/profile/updateName", data);
+  return response.data;
+};
+
+export const uploadProfilePicture = async (formData) => {
+  try {
+    const response = await api.post("/api/profile/uploadPicture", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return response.data;
+  } catch (error) {
+    console.error("API Error:", error.response?.data?.error || error.message);
+    throw error;
+  }
+};
+
 export const getBoards = async () => {
   const response = await api.get("/api/boards");
   return response.data;
 };
-
-export const inviteMembers = async (boardId, emails) => {
-    const response = await api.post(`/api/boards/${boardId}/invite`, { emails });
-    return response.data;
-};
-
-export const removeMember = async (boardId, email) => {
-    const response = await api.delete(`/api/boards/${boardId}/members/${email}`);
-    return response.data;
-};
-  
-export const getBoard = async (boardId) => {
-    const response = await api.get(`/api/boards/${boardId}`);
-    return response.data;
-};  
 
 export const createBoard = async (boardData) => {
   const response = await api.post("/api/boards", boardData);
@@ -53,6 +62,21 @@ export const createBoard = async (boardData) => {
 
 export const deleteBoard = async (boardId) => {
   const response = await api.delete(`/api/boards/${boardId}`);
+  return response.data;
+};
+
+export const getBoard = async (boardId) => {
+  const response = await api.get(`/api/boards/${boardId}`);
+  return response.data;
+};
+
+export const inviteMembers = async (boardId, emails) => {
+  const response = await api.post(`/api/boards/${boardId}/invite`, { emails });
+  return response.data;
+};
+
+export const removeMember = async (boardId, email) => {
+  const response = await api.delete(`/api/boards/${boardId}/members/${email}`);
   return response.data;
 };
 
@@ -66,45 +90,28 @@ export const createOrUpdateColumn = async (boardId, colId, colData) => {
   return response.data;
 };
 
-export const getTasks = async (boardId) => {
-  const response = await api.get(`/api/boards/${boardId}/tasks`);
+export const getTasksInColumn = async (boardId, colId) => {
+  const response = await api.get(`/api/boards/${boardId}/columns/${colId}/tasks`);
   return response.data;
 };
 
-export const createTask = async (boardId, taskData) => {
-  const response = await api.post(`/api/boards/${boardId}/tasks`, taskData);
+export const createTaskInColumn = async (boardId, colId, taskData) => {
+  const response = await api.post(`/api/boards/${boardId}/columns/${colId}/tasks`, taskData);
   return response.data;
 };
 
-export const updateTask = async (boardId, taskId, updates) => {
-  const response = await api.patch(`/api/boards/${boardId}/tasks/${taskId}`, updates);
+export const updateTaskInColumn = async (boardId, colId, taskId, updates) => {
+  const response = await api.patch(
+    `/api/boards/${boardId}/columns/${colId}/tasks/${taskId}`,
+    updates
+  );
   return response.data;
 };
 
-export const getProfile = async () => {
-    const response = await api.get("/profile");
-    return response.data;
+export const deleteTaskInColumn = async (boardId, colId, taskId) => {
+  const response = await api.delete(`/api/boards/${boardId}/columns/${colId}/tasks/${taskId}`);
+  return response.data;
 };
-  
-export const updateProfile = async (data) => {
-    const response = await api.post("/api/profile/updateName", data);
-    return response.data;
-};
-  
-export const uploadProfilePicture = async (formData) => {
-    try {
-      const response = await api.post("/api/profile/uploadPicture", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-      return response.data;
-    } catch (error) {
-      console.error("API Error:", error.response?.data?.error || error.message);
-      throw error;
-    }
-};
-  
 
 api.interceptors.response.use(
   (response) => response,

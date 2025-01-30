@@ -52,9 +52,9 @@
                     <v-list-item-title class="font-weight-medium">
                       {{ member.displayName || "Anonymous" }}
                     </v-list-item-title>
-                    <v-list-item-subtitle>{{
-                      member.email
-                    }}</v-list-item-subtitle>
+                    <v-list-item-subtitle>
+                      {{ member.email }}
+                    </v-list-item-subtitle>
                   </v-col>
                   <v-col cols="auto">
                     <v-btn
@@ -99,11 +99,10 @@
               <v-divider />
               <v-card-text>
                 <Draggable
-                  :list="tasksByColumn[column.id]"
+                  v-model="tasksByColumn[column.id]"
                   item-key="id"
                   group="tasks"
-                  @start="onDragStart"
-                  @end="onDragEnd"
+                  @change="(evt) => onListChange(evt, column.id)"
                 >
                   <template #item="{ element: task }">
                     <v-sheet
@@ -133,11 +132,10 @@
                             :key="col.id"
                             @click="moveTask(task, column.id, col.id)"
                           >
-                            <v-list-item-title
-                              >Move to {{ col.title }}</v-list-item-title
-                            >
+                            <v-list-item-title>
+                              Move to {{ col.title }}
+                            </v-list-item-title>
                           </v-list-item>
-
                           <v-list-item
                             @click="deleteTaskInColumn(column.id, task.id)"
                           >
@@ -227,7 +225,6 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Draggable from "vuedraggable";
-
 import {
   getBoard,
   getColumns,
@@ -239,9 +236,14 @@ import {
   inviteMembers as inviteMembersAPI,
   removeMember as removeMemberAPI,
 } from "@/api";
-
 import { useToast, showToast } from "@/utils/toast";
-import { doc, collection, onSnapshot } from "firebase/firestore";
+import {
+  doc,
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+} from "firebase/firestore";
 import { db } from "@/firebase";
 
 const backendBaseUrl = "http://localhost:8081";
@@ -273,8 +275,6 @@ let unsubscribeBoard = null;
 let unsubscribeColumns = null;
 let columnTasksUnsubs = [];
 
-const draggingTask = ref(null);
-
 onMounted(async () => {
   try {
     const userData = await getProfile();
@@ -288,8 +288,7 @@ onMounted(async () => {
         return;
       }
       const boardData = snapshot.data();
-      const memberEmails = boardData?.members || [];
-      if (!memberEmails.includes(currentUserEmail.value)) {
+      if (!(boardData.members || []).includes(currentUserEmail.value)) {
         showToast("You have been removed from the board.", "warning");
         router.push("/");
         return;
@@ -309,6 +308,7 @@ onMounted(async () => {
 
       cleanupColumnTasksWatchers();
       tasksByColumn.value = {};
+
       for (const col of newCols) {
         tasksByColumn.value[col.id] = [];
         watchTasksOfColumn(col.id);
@@ -334,10 +334,7 @@ onMounted(async () => {
         });
       }
     }
-    columns.value = cols;
-    columns.value.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-    tasksByColumn.value = {};
+    columns.value = cols.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     for (const col of columns.value) {
       tasksByColumn.value[col.id] = [];
       watchTasksOfColumn(col.id);
@@ -356,20 +353,22 @@ onUnmounted(() => {
 });
 
 function watchTasksOfColumn(colId) {
-  const tasksRef = collection(db, "boards", boardId, "columns", colId, "tasks");
-  const unsub = onSnapshot(tasksRef, (snap) => {
-    let tasks = snap.docs.map((doc) => ({
+  const qTasks = query(
+    collection(db, "boards", boardId, "columns", colId, "tasks"),
+    orderBy("order")
+  );
+  const unsub = onSnapshot(qTasks, (snap) => {
+    const tasks = snap.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
-    tasks.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     tasksByColumn.value[colId] = tasks;
   });
   columnTasksUnsubs.push(unsub);
 }
 
 function cleanupColumnTasksWatchers() {
-  columnTasksUnsubs.forEach((unsub) => unsub && unsub());
+  columnTasksUnsubs.forEach((fn) => fn && fn());
   columnTasksUnsubs = [];
 }
 
@@ -377,7 +376,7 @@ async function initializeBoardListeners(boardId) {
   try {
     await fetch(`${backendBaseUrl}/listen/${boardId}`);
   } catch (error) {
-    console.error("Error setting up listeners:", error);
+    console.error("Error setting up listeners on server:", error);
   }
 }
 
@@ -400,42 +399,26 @@ async function inviteMembers() {
   }
   const emailList = invitedEmails.value
     .split(",")
-    .map((email) => email.trim())
+    .map((e) => e.trim())
     .filter(Boolean);
-
   try {
-    const response = await inviteMembersAPI(boardId, emailList);
-    const { validEmails, alreadyMembers, invalidEmails } = response;
-
+    const result = await inviteMembersAPI(boardId, emailList);
+    const { validEmails, alreadyMembers, invalidEmails } = result;
     if (validEmails.length) {
-      showToast(
-        `${validEmails.length} members successfully invited.`,
-        "success"
-      );
+      showToast(`${validEmails.length} members invited.`, "success");
     }
     if (alreadyMembers.length) {
-      showToast(
-        `These members were already part of the board: ${alreadyMembers.join(
-          ", "
-        )}.`,
-        "info"
-      );
+      showToast(`Already members: ${alreadyMembers.join(", ")}.`, "info");
     }
     if (invalidEmails.length) {
-      showToast(
-        `These emails are invalid or do not exist: ${invalidEmails.join(
-          ", "
-        )}.`,
-        "warning"
-      );
+      showToast(`Invalid: ${invalidEmails.join(", ")}.`, "warning");
     }
-
     const updatedMembers = await getBoard(boardId).then((data) => data.members);
     members.value = updatedMembers;
     closeInviteDialog();
-  } catch (error) {
-    console.error("Error inviting members:", error);
-    showToast("Failed to invite members. Please try again later.", "error");
+  } catch (err) {
+    console.error("Invite error:", err);
+    showToast("Failed to invite members.", "error");
   }
 }
 
@@ -444,7 +427,6 @@ function openRemoveDialog(email, displayName) {
   memberToRemoveName.value = displayName || "this member";
   isRemoveDialogOpen.value = true;
 }
-
 async function confirmRemoveMember() {
   try {
     await removeMemberAPI(boardId, memberToRemove.value);
@@ -461,68 +443,68 @@ async function confirmRemoveMember() {
 async function moveTask(task, oldColumnId, newColumnId) {
   try {
     await deleteTaskInColumnAPI(boardId, oldColumnId, task.id);
-
     const newOrder = tasksByColumn.value[newColumnId]?.length || 0;
     await createTaskInColumn(boardId, newColumnId, {
       title: task.title,
       order: newOrder,
     });
-  } catch (error) {
-    console.error("Error moving task:", error);
+  } catch (err) {
+    console.error("moveTask error:", err);
     showToast("Failed to move task.", "error");
   }
 }
 
-function onDragStart(evt) {
-  const { from } = evt;
+async function onListChange(evt, columnId) {
+  const { added, removed, moved } = evt;
 
-  const columnId = from.closest("[data-column-id]")?.dataset.columnId;
-
-  draggingTask.value = {
-    oldColumnId: columnId,
-  };
-}
-
-async function onDragEnd(evt) {
   try {
-    const { to, newIndex } = evt;
-
-    const oldColumnId = draggingTask.value.oldColumnId;
-
-    const newColumnId = to.closest("[data-column-id]")?.dataset.columnId;
-
-    const task = tasksByColumn.value[newColumnId][newIndex];
-
-    if (!oldColumnId || !newColumnId) {
-      console.error("Column IDs missing:", { oldColumnId, newColumnId });
-      return;
+    if (moved) {
+      await reorderTasksInColumn(columnId);
     }
 
-    if (oldColumnId !== newColumnId) {
-      await deleteTaskInColumnAPI(boardId, oldColumnId, task.id);
+    if (added) {
+      const newIndex = added.newIndex;
+      const newItem = tasksByColumn.value[columnId][newIndex];
+      if (!newItem) return;
 
-      const taskData = { ...task, columnId: newColumnId, order: newIndex };
-      await createTaskInColumn(boardId, newColumnId, taskData);
-    } else {
-      await updateTaskInColumn(boardId, oldColumnId, task.id, { order: newIndex });
+      const result = await createTaskInColumn(boardId, columnId, {
+        title: newItem.title,
+        order: newIndex,
+      });
+
+      newItem.id = result.id;
+
+      await reorderTasksInColumn(columnId);
     }
 
-   } catch (error) {
-    console.error("Error in onDragEnd:", error);
-  } finally {
-    draggingTask.value = null;
+    if (removed) {
+      const oldItem = removed.element;
+      if (oldItem && oldItem.id) {
+        await deleteTaskInColumnAPI(boardId, columnId, oldItem.id);
+      }
+      await reorderTasksInColumn(columnId);
+    }
+  } catch (error) {
+    console.error("onListChange error:", error);
+    showToast("Drag-and-drop failed. Please try again.", "error");
   }
 }
 
-function filteredColumns(currentColId) {
-  return columns.value.filter((c) => c.id !== currentColId);
+async function reorderTasksInColumn(colId) {
+  const tasks = tasksByColumn.value[colId];
+  if (!tasks) return;
+  for (let i = 0; i < tasks.length; i++) {
+    if (tasks[i].order !== i) {
+      tasks[i].order = i;
+      await updateTaskInColumn(boardId, colId, tasks[i].id, { order: i });
+    }
+  }
 }
 
 function openNewTaskDialog(columnId) {
   activeColumnId.value = columnId;
   isDialogOpen.value = true;
 }
-
 function closeDialog() {
   isDialogOpen.value = false;
   newTaskTitle.value = "";
@@ -531,16 +513,16 @@ function closeDialog() {
 
 async function createTask() {
   if (!newTaskTitle.value.trim() || !activeColumnId.value) return;
-
-  const newOrder = tasksByColumn.value[activeColumnId.value].length;
+  const currentTasks = tasksByColumn.value[activeColumnId.value];
+  const newOrder = currentTasks.length;
   try {
     await createTaskInColumn(boardId, activeColumnId.value, {
       title: newTaskTitle.value,
       order: newOrder,
     });
     closeDialog();
-  } catch (error) {
-    console.error("Error creating task:", error);
+  } catch (err) {
+    console.error("createTask error:", err);
     showToast("Failed to create task.", "error");
   }
 }
@@ -549,10 +531,14 @@ async function deleteTaskInColumn(colId, taskId) {
   try {
     await deleteTaskInColumnAPI(boardId, colId, taskId);
     showToast("Task deleted successfully.", "success");
-  } catch (error) {
-    console.error("Error deleting task:", error);
+  } catch (err) {
+    console.error("deleteTaskInColumn error:", err);
     showToast("Failed to delete task.", "error");
   }
+}
+
+function filteredColumns(currentColId) {
+  return columns.value.filter((c) => c.id !== currentColId);
 }
 </script>
 

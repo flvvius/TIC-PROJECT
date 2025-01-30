@@ -1,5 +1,6 @@
 node_modules
 
 /config/firestore_key.json
+/config/firestore_key_2.json
 
 .env

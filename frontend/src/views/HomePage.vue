@@ -1,13 +1,13 @@
 <template>
   <v-container>
-    <div ref="scrollContainer" class="scroll-container">
+    <ScrollContainer @scroll="handleScroll">
       <v-row justify="center">
         <v-col cols="12" md="8" lg="6">
           <v-sheet elevation="1" rounded="lg" class="pa-4">
             <v-card outlined>
               <v-card-title class="d-flex align-center">
                 <v-icon left color="primary">mdi-view-kanban</v-icon>
-                <span class="text-h5 font-weight-medium">Kanban Boards</span>
+                <span class="font-weight-medium">Kanban Boards</span>
                 <v-spacer></v-spacer>
                 <v-btn
                   color="success"
@@ -18,120 +18,42 @@
                   Create Board
                 </v-btn>
               </v-card-title>
-              <v-divider></v-divider>
-
-              <v-card-text>
-                <v-row>
-                  <v-col
-                    v-for="board in boards"
-                    :key="board.id"
-                    cols="12"
-                    md="12"
-                    class="mb-4"
-                  >
-                    <v-card
-                      outlined
-                      hover
-                      elevation="2"
-                      class="pa-2 board-item"
-                      @click="enterBoard(board.id)"
-                    >
-                      <v-card-title class="d-flex align-center title-card">
-                        <v-icon left color="primary"
-                          >mdi-clipboard-text-outline</v-icon
-                        >
-                        <span class="font-weight-medium">{{ board.name }}</span>
-                        <v-btn
-                          icon
-                          text
-                          v-if="userData && board.ownerEmail === userData.email"
-                          @click.stop="confirmDeleteBoard(board.id)"
-                          class="btn-icon"
-                        >
-                          <v-icon color="error">mdi-delete</v-icon>
-                        </v-btn>
-                      </v-card-title>
-                    </v-card>
-                  </v-col>
-                </v-row>
-
-                <v-alert v-if="boards.length === 0" type="info" class="mt-4">
-                  No boards found. Create one to get started!
-                </v-alert>
-              </v-card-text>
-
-              <v-progress-circular
-                v-if="isLoadingMore"
-                color="primary"
-                indeterminate
-                class="mx-auto my-4"
-              />
             </v-card>
           </v-sheet>
         </v-col>
       </v-row>
-    </div>
-
-    <v-dialog v-model="isDialogOpen" max-width="500px">
-      <v-card>
-        <v-card-title>
-          <v-icon left>mdi-plus</v-icon> Add New Board
-        </v-card-title>
-        <v-divider></v-divider>
-        <v-card-text>
-          <v-text-field
-            label="Board Name"
-            v-model="newBoardName"
-            placeholder="Enter a name for the board"
-            outlined
-          />
-          <v-text-field
-            label="Invite Members (emails, comma-separated)"
-            v-model="inviteEmails"
-            placeholder="user1@example.com, user2@example.com"
-            outlined
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-btn color="primary" @click="createBoard">Create</v-btn>
-          <v-btn text @click="closeDialog">Cancel</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <v-dialog v-model="confirmDeleteDialog" max-width="400px">
-      <v-card>
-        <v-card-title>
-          <v-icon left color="warning">mdi-alert</v-icon> Confirm Delete
-        </v-card-title>
-        <v-divider></v-divider>
-        <v-card-text
-          >Are you sure you want to delete this board? This action cannot be
-          undone.</v-card-text
-        >
-        <v-card-actions>
-          <v-btn text color="error" @click="deleteConfirmedBoard">Delete</v-btn>
-          <v-btn text @click="confirmDeleteDialog = false">Cancel</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <v-snackbar
-      v-model="toast.show"
-      :timeout="toast.timeout"
-      :color="toast.color"
-      location="top right"
-    >
-      {{ toast.message }}
-      <template #actions>
-        <v-btn text @click="toast.show = false">Close</v-btn>
-      </template>
-    </v-snackbar>
+      <BoardList
+        :boards="boards"
+        :userData="userData"
+        @delete="confirmDeleteBoard"
+        @enter="enterBoard"
+      />
+      <v-progress-circular
+        v-if="isLoadingMore"
+        color="primary"
+        indeterminate
+        class="mx-auto my-4"
+      />
+    </ScrollContainer>
+    <NewBoardDialog
+      :isDialogOpen="isDialogOpen"
+      @create-board="createBoard"
+      @update:isDialogOpen="isDialogOpen = $event"
+    />
+    <DeleteBoardDialog
+      :isDialogOpen="confirmDeleteDialog"
+      @confirm="deleteConfirmedBoard"
+      @update:isDialogOpen="confirmDeleteDialog = $event"
+    />
+    <Snackbar
+      :toast="toast"
+      @update:toast="(updatedToast) => (toast = updatedToast)"
+    />
   </v-container>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import {
   getProfile,
@@ -150,7 +72,11 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { db } from "@/firebase";
-import debounce from "lodash/debounce";
+import ScrollContainer from "@/components/ScrollContainer.vue";
+import BoardList from "@/components/BoardList.vue";
+import NewBoardDialog from "@/components/NewBoardDialog.vue";
+import DeleteBoardDialog from "@/components/DeleteBoardDialog.vue";
+import Snackbar from "@/components/SnackbarToast.vue";
 
 const router = useRouter();
 const toast = useToast();
@@ -165,7 +91,7 @@ const boardToDelete = ref(null);
 const lastVisible = ref(null);
 const isLoadingMore = ref(false);
 const hasMoreBoards = ref(true);
-const scrollContainer = ref(null);
+const hasFetchedInitialBoards = ref(false);
 
 let unsubscribeBoards = null;
 
@@ -179,21 +105,42 @@ onMounted(async () => {
   try {
     const profile = await getProfile();
     userData.value = profile.user;
-    const initialLimit = calculateInitialLimit();
-    listenForBoards(initialLimit);
-    await nextTick();
-    setTimeout(() => {
-      if (scrollContainer.value instanceof HTMLElement) {
-        attachScrollListener();
-      } else {
-        console.error("scrollContainer is not a valid HTMLElement.");
-      }
-    }, 500);
+    await fetchInitialBoards();
   } catch (error) {
     console.error("Error initializing profile:", error);
     showToast("Error loading profile.", "error");
   }
 });
+
+async function fetchInitialBoards() {
+  if (hasFetchedInitialBoards.value) return;
+
+  const initialLimit = calculateInitialLimit();
+
+  const boardsCollection = collection(db, "boards");
+  const q = query(
+    boardsCollection,
+    where("members", "array-contains", userData.value.email),
+    orderBy("createdAt", "desc"),
+    limit(initialLimit)
+  );
+
+  try {
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      boards.value = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      lastVisible.value = snapshot.docs[snapshot.docs.length - 1];
+    }
+  } catch (error) {
+    console.error("Error fetching initial boards:", error);
+  } finally {
+    hasFetchedInitialBoards.value = true;
+    listenForBoards(); 
+  }
+}
 
 function listenForBoards(initialLimit = 6) {
   if (!userData.value) return;
@@ -235,13 +182,14 @@ async function loadMoreBoards() {
   if (!lastVisible.value || isLoadingMore.value || !hasMoreBoards.value) return;
 
   isLoadingMore.value = true;
+
   const boardsCollection = collection(db, "boards");
   const q = query(
     boardsCollection,
     where("members", "array-contains", userData.value.email),
     orderBy("createdAt", "desc"),
     startAfter(lastVisible.value),
-    limit(3)
+    limit(5)
   );
 
   try {
@@ -264,41 +212,16 @@ async function loadMoreBoards() {
   }
 }
 
-function attachScrollListener() {
-  if (
-    !scrollContainer.value ||
-    !(scrollContainer.value instanceof HTMLElement)
-  ) {
-    console.error("scrollContainer is not an HTMLElement");
-    return;
-  }
-
-  scrollContainer.value.addEventListener("scroll", debounce(handleScroll, 300));
-}
-
-function detachScrollListener() {
-  if (!scrollContainer.value) return;
-  scrollContainer.value.removeEventListener("scroll", handleScroll);
-}
 
 function handleScroll() {
-  if (!scrollContainer.value || isLoadingMore.value || !hasMoreBoards.value)
-    return;
-
-  const bottomOffset = 200;
-  const container = scrollContainer.value;
-
-  if (
-    container.scrollHeight - container.scrollTop <=
-    container.clientHeight + bottomOffset
-  ) {
-    loadMoreBoards();
-  }
+  if (isLoadingMore.value || !hasMoreBoards.value) return;
+  loadMoreBoards();
 }
 
-function openNewBoardDialog() {
+
+const openNewBoardDialog = () => {
   isDialogOpen.value = true;
-}
+};
 
 function closeDialog() {
   isDialogOpen.value = false;
@@ -322,15 +245,15 @@ async function deleteConfirmedBoard() {
   }
 }
 
-async function createBoard() {
-  if (!newBoardName.value.trim()) {
+async function createBoard({ name, emails }) {
+  if (!name.trim()) {
     showToast("Board name is required.", "error");
     return;
   }
 
   let invitedArray = [];
-  if (inviteEmails.value.trim()) {
-    invitedArray = inviteEmails.value
+  if (emails.trim()) {
+    invitedArray = emails
       .split(",")
       .map((email) => email.trim())
       .filter(Boolean);
@@ -338,7 +261,7 @@ async function createBoard() {
 
   try {
     await createBoardAPI({
-      name: newBoardName.value,
+      name,
       invitedUsers: invitedArray,
       ownerEmail: userData.value.email,
     });
@@ -367,7 +290,6 @@ onUnmounted(() => {
   if (unsubscribeBoards) {
     unsubscribeBoards();
   }
-  detachScrollListener();
 });
 </script>
 
@@ -404,4 +326,3 @@ onUnmounted(() => {
   padding-bottom: 20px;
 }
 </style>
-

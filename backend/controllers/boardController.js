@@ -7,9 +7,6 @@ async function getPaginatedBoards(req, res) {
       let { limit, startAfter } = req.query;
       limit = parseInt(limit) || 5;
   
-      console.log("Limit:", limit);
-      console.log("Start After:", startAfter);
-  
       let queryRef = db
         .collection("boards")
         .where("members", "array-contains", userEmail)
@@ -47,10 +44,6 @@ async function getPaginatedBoards(req, res) {
           nextPageCursor = lastCreated;
         }
       }
-  
-      console.log("Boards:", boards);
-      console.log("Next Page Cursor:", nextPageCursor);
-  
       return res.json({
         boards,
         nextPageCursor,
@@ -62,49 +55,58 @@ async function getPaginatedBoards(req, res) {
 }  
 
 async function createBoard(req, res) {
-  try {
-    const { name, invitedUsers = [], ownerEmail } = req.body;
-    const { email } = req.user;
-
-    if (!name) {
-      return res.status(400).json({ error: "Board name is required." });
-    }
-
-    const validEmails = [];
-    const invalidEmails = [];
-
-    for (const invitedEmail of invitedUsers) {
-      const userSnap = await db.collection("users").where("email", "==", invitedEmail).limit(1).get();
-      if (!userSnap.empty) {
-        validEmails.push(invitedEmail);
-      } else {
-        invalidEmails.push(invitedEmail);
+    try {
+  
+      const { name, invitedUsers = [], ownerEmail } = req.body;
+      const { email } = req.user;
+  
+      if (!name) {
+        console.error("Board name missing");
+        return res.status(400).json({ error: "Board name is required." });
       }
+  
+      if (!email) {
+        console.error("User email missing");
+        return res.status(400).json({ error: "User authentication required." });
+      }
+  
+      const validEmails = [];
+      const invalidEmails = [];
+  
+      for (const invitedEmail of invitedUsers) {
+        const userSnap = await db.collection("users").where("email", "==", invitedEmail).limit(1).get();
+        if (!userSnap.empty) {
+          validEmails.push(invitedEmail);
+        } else {
+          invalidEmails.push(invitedEmail);
+        }
+      }
+  
+      if (invalidEmails.length) {
+        console.error("Invalid emails found:", invalidEmails);
+        return res.status(400).json({
+          error: "Some emails are invalid.",
+          invalidEmails,
+        });
+      }
+  
+      const members = [email, ...validEmails];
+      const newBoard = {
+        name,
+        members,
+        ownerEmail,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+  
+      const boardRef = await db.collection("boards").add(newBoard);
+  
+      res.status(201).json({ id: boardRef.id, ...newBoard });
+    } catch (error) {
+      console.error("Error creating board:", error);
+      res.status(500).json({ error: "Failed to create board." });
     }
-
-    if (invalidEmails.length) {
-      return res.status(400).json({
-        error: "Some emails are invalid.",
-        invalidEmails,
-      });
-    }
-
-    const members = [email, ...validEmails];
-    const newBoard = {
-      name,
-      members,
-      ownerEmail,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    const boardRef = await db.collection("boards").add(newBoard);
-
-    res.status(201).json({ id: boardRef.id, ...newBoard });
-  } catch (error) {
-    console.error("Error creating board:", error);
-    res.status(500).json({ error: "Failed to create board." });
   }
-}
+  
 
 async function getBoard(req, res) {
   try {

@@ -1,23 +1,65 @@
 const admin = require("firebase-admin");
 const { db } = require("../config/db");
 
-async function getAllBoards(req, res) {
-  try {
-    const { email } = req.user;
-    const boardsSnap = await db
-      .collection("boards")
-      .where("members", "array-contains", email)
-      .get();
-
-    const boards = boardsSnap.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    res.json(boards);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch boards." });
-  }
-}
+async function getPaginatedBoards(req, res) {
+    try {
+      const userEmail = req.user.email;
+      let { limit, startAfter } = req.query;
+      limit = parseInt(limit) || 5;
+  
+      console.log("Limit:", limit);
+      console.log("Start After:", startAfter);
+  
+      let queryRef = db
+        .collection("boards")
+        .where("members", "array-contains", userEmail)
+        .orderBy("createdAt", "desc")
+        .limit(limit);
+  
+      if (startAfter) {
+        const startAfterNum = Number(startAfter);
+        if (!isNaN(startAfterNum) && startAfterNum > 0) {
+          const admin = require("firebase-admin");
+          const startAfterTS = admin.firestore.Timestamp.fromMillis(startAfterNum);
+  
+          queryRef = queryRef.startAfter(startAfterTS);
+        }
+      }
+  
+      const snapshot = await queryRef.get();
+  
+      const boards = [];
+      snapshot.forEach(doc => {
+        boards.push({
+          id: doc.id,
+          ...doc.data(),
+        });
+      });
+  
+      let nextPageCursor = null;
+      if (boards.length === limit) {
+        const lastDoc = boards[boards.length - 1];
+        if (lastDoc.createdAt) {
+          const lastCreated = lastDoc.createdAt.toMillis
+            ? lastDoc.createdAt.toMillis()
+            : lastDoc.createdAt;
+  
+          nextPageCursor = lastCreated;
+        }
+      }
+  
+      console.log("Boards:", boards);
+      console.log("Next Page Cursor:", nextPageCursor);
+  
+      return res.json({
+        boards,
+        nextPageCursor,
+      });
+    } catch (error) {
+      console.error("Error fetching paged boards:", error);
+      return res.status(500).json({ error: "Failed to fetch paged boards." });
+    }
+}  
 
 async function createBoard(req, res) {
   try {
@@ -196,7 +238,7 @@ async function removeMember(req, res) {
 }
 
 module.exports = {
-  getAllBoards,
+  getPaginatedBoards,
   createBoard,
   getBoard,
   deleteBoard,

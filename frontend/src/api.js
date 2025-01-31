@@ -50,9 +50,18 @@ export const uploadProfilePicture = async (formData) => {
   }
 };
 
-export const getBoards = async () => {
-  const response = await api.get("/api/boards");
-  return response.data;
+export const getBoards = async (cursor = null) => {
+  const url = cursor
+    ? `/api/boards/paged?limit=5&startAfter=${cursor}`
+    : `/api/boards/paged?limit=5`;
+
+  try {
+    const response = await api.get(url);
+    return response.data;
+  } catch (error) {
+    console.error("API Error:", error.response?.data?.error || error.message);
+    throw error;
+  }
 };
 
 export const createBoard = async (boardData) => {

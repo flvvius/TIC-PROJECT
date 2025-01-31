@@ -2,15 +2,15 @@ const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const {
-  getAllBoards,
   createBoard,
   getBoard,
   deleteBoard,
   inviteMembers,
   removeMember,
+  getPaginatedBoards,
 } = require("../controllers/boardController");
 
-router.get("/api/boards", authMiddleware, getAllBoards);
+router.get("/api/boards/paged", authMiddleware, getPaginatedBoards);
 
 router.post("/api/boards", authMiddleware, createBoard);
 

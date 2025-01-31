@@ -8,49 +8,57 @@
               <v-icon left color="primary">mdi-view-kanban</v-icon>
               <span class="text-h5 font-weight-medium">Kanban Boards</span>
               <v-spacer></v-spacer>
-              <v-btn
-                color="success"
-                class="elevation-2"
-                @click="openNewBoardDialog"
-              >
+              <v-btn color="success" class="elevation-2" @click="openNewBoardDialog">
                 <v-icon left>mdi-plus</v-icon>
                 Create Board
               </v-btn>
             </v-card-title>
-
             <v-divider></v-divider>
 
             <v-card-text>
               <v-row>
-                <v-col cols="12" v-for="board in boards" :key="board.id">
-                  <v-card
-                    outlined
-                    hover
-                    elevation="2"
-                    class="pa-2 board-item"
-                    @click="enterBoard(board.id)"
-                  >
+                <v-col
+                  v-for="board in boards"
+                  :key="board.id"
+                  cols="12"
+                  md="4"
+                  class="mb-4"
+                >
+                  <v-card outlined hover elevation="2" class="pa-2 board-item" @click="enterBoard(board.id)">
                     <v-card-title class="d-flex align-center">
-                      <v-icon left color="primary"
-                        >mdi-clipboard-text-outline</v-icon
-                      >
+                      <v-icon left color="primary">mdi-clipboard-text-outline</v-icon>
                       <span class="font-weight-medium">{{ board.name }}</span>
-
                       <v-spacer></v-spacer>
-
-                      <v-btn
-                        icon
-                        text
-                        v-if="userData && board.ownerEmail === userData.email"
-                        @click.stop="confirmDeleteBoard(board.id)"
-                      >
+                      <v-btn icon text v-if="userData && board.ownerEmail === userData.email" @click.stop="confirmDeleteBoard(board.id)">
                         <v-icon color="error">mdi-delete</v-icon>
                       </v-btn>
                     </v-card-title>
                   </v-card>
                 </v-col>
               </v-row>
+
+              <v-alert v-if="boards.length === 0" type="info" class="mt-4">
+                No boards found. Create one to get started!
+              </v-alert>
             </v-card-text>
+
+            <v-btn
+              v-if="!isLoadingMore && boards.length > 0"
+              @click="loadMoreBoards"
+              class="mx-auto my-4"
+              color="primary"
+              :disabled="isLoadingMore"
+            >
+              Load More Boards
+            </v-btn>
+            <v-btn
+              v-if="isLoadingMore"
+              class="mx-auto my-4"
+              color="primary"
+              disabled
+            >
+              Loading more boards...
+            </v-btn>
           </v-card>
         </v-sheet>
       </v-col>
@@ -63,18 +71,8 @@
         </v-card-title>
         <v-divider></v-divider>
         <v-card-text>
-          <v-text-field
-            label="Board Name"
-            v-model="newBoardName"
-            placeholder="Enter a name for the board"
-            outlined
-          />
-          <v-text-field
-            label="Invite Members (emails, comma-separated)"
-            v-model="inviteEmails"
-            placeholder="user1@example.com, user2@example.com"
-            outlined
-          />
+          <v-text-field label="Board Name" v-model="newBoardName" placeholder="Enter a name for the board" outlined />
+          <v-text-field label="Invite Members (emails, comma-separated)" v-model="inviteEmails" placeholder="user1@example.com, user2@example.com" outlined />
         </v-card-text>
         <v-card-actions>
           <v-btn color="primary" @click="createBoard">Create</v-btn>
@@ -89,10 +87,7 @@
           <v-icon left color="warning">mdi-alert</v-icon> Confirm Delete
         </v-card-title>
         <v-divider></v-divider>
-        <v-card-text>
-          Are you sure you want to delete this board? This action cannot be
-          undone.
-        </v-card-text>
+        <v-card-text>Are you sure you want to delete this board? This action cannot be undone.</v-card-text>
         <v-card-actions>
           <v-btn text color="error" @click="deleteConfirmedBoard">Delete</v-btn>
           <v-btn text @click="confirmDeleteDialog = false">Cancel</v-btn>
@@ -100,12 +95,7 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar
-      v-model="toast.show"
-      :timeout="toast.timeout"
-      :color="toast.color"
-      location="top right"
-    >
+    <v-snackbar v-model="toast.show" :timeout="toast.timeout" :color="toast.color" location="top right">
       {{ toast.message }}
       <template #actions>
         <v-btn text @click="toast.show = false">Close</v-btn>
@@ -117,17 +107,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
-
-import {
-  getProfile,
-  createBoard as createBoardAPI,
-  deleteBoard as deleteBoardAPI,
-} from "@/api";
-
-import { db } from "@/firebase";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
-
+import { getProfile, createBoard as createBoardAPI, deleteBoard as deleteBoardAPI } from "@/api";
 import { useToast, showToast } from "@/utils/toast";
+import { collection, query, where, orderBy, limit, startAfter, onSnapshot } from "firebase/firestore";
+import { db } from "@/firebase";
 
 const router = useRouter();
 const toast = useToast();
@@ -139,6 +122,8 @@ const newBoardName = ref("");
 const inviteEmails = ref("");
 const confirmDeleteDialog = ref(false);
 const boardToDelete = ref(null);
+const lastVisible = ref(null);
+const isLoadingMore = ref(false);
 
 let unsubscribeBoards = null;
 
@@ -146,36 +131,59 @@ onMounted(async () => {
   try {
     const profile = await getProfile();
     userData.value = profile.user;
-
-    const boardsCollection = collection(db, "boards");
-    const q = query(
-      boardsCollection,
-      where("members", "array-contains", userData.value.email)
-    );
-
-    unsubscribeBoards = onSnapshot(q, (snapshot) => {
-      const boardDocs = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      boards.value = boardDocs;
-    });
+    listenForBoards();
   } catch (error) {
-    console.error("Error initializing boards listener:", error);
-    showToast("Error loading boards.", "error");
+    console.error("Error initializing profile:", error);
+    showToast("Error loading profile.", "error");
   }
 });
 
-onUnmounted(() => {
-  if (unsubscribeBoards) {
-    unsubscribeBoards();
+function listenForBoards() {
+  const boardsCollection = collection(db, "boards");
+  let q = query(
+    boardsCollection,
+    where("members", "array-contains", userData.value.email),
+    orderBy("createdAt", "desc"),
+    limit(5)
+  );
+
+  if (lastVisible.value) {
+    q = query(q, startAfter(lastVisible.value));
   }
-});
+
+  unsubscribeBoards = onSnapshot(q, (snapshot) => {
+    snapshot.docChanges().forEach((change) => {
+      const boardData = { id: change.doc.id, ...change.doc.data() };
+
+      if (change.type === "added") {
+        if (!boards.value.some(board => board.id === boardData.id)) {
+          boards.value.push(boardData);
+        }
+      } else if (change.type === "removed") {
+        boards.value = boards.value.filter(board => board.id !== boardData.id);
+      }
+    });
+
+    if (snapshot.docs.length > 0) {
+      lastVisible.value = snapshot.docs[snapshot.docs.length - 1];
+    }
+
+    isLoadingMore.value = false;
+  });
+}
+
+
+
+function loadMoreBoards() {
+  if (isLoadingMore.value) return;
+  isLoadingMore.value = true;
+  listenForBoards();
+}
 
 function openNewBoardDialog() {
   isDialogOpen.value = true;
 }
+
 function closeDialog() {
   isDialogOpen.value = false;
   newBoardName.value = "";
@@ -238,6 +246,12 @@ async function createBoard() {
 function enterBoard(boardId) {
   router.push(`/kanban/${boardId}`);
 }
+
+onUnmounted(() => {
+  if (unsubscribeBoards) {
+    unsubscribeBoards();
+  }
+});
 </script>
 
 <style scoped>
@@ -245,6 +259,7 @@ function enterBoard(boardId) {
   cursor: pointer;
   transition: box-shadow 0.3s, transform 0.3s;
 }
+
 .board-item:hover {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   transform: translateY(-2px);

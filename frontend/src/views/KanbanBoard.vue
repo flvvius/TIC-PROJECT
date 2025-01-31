@@ -78,6 +78,79 @@
       </v-col>
     </v-row>
 
+    <v-row justify="center" class="mb-4">
+      <v-col cols="12" md="8" lg="6">
+        <v-card>
+          <v-card-title
+            >Sort Tasks
+            <v-spacer />
+            <v-btn
+              icon
+              @click="toggleSortPanel"
+              :aria-label="isSortPanelExpanded ? 'Collapse' : 'Expand'"
+            >
+              <v-icon>
+                {{
+                  isSortPanelExpanded ? "mdi-chevron-up" : "mdi-chevron-down"
+                }}
+              </v-icon>
+            </v-btn>
+          </v-card-title>
+          <v-divider />
+          <v-card-text v-if="isSortPanelExpanded">
+            <v-row>
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="sortField1"
+                  :items="sortFieldOptions"
+                  item-title="text"
+                  item-value="value"
+                  label="Primary Sort Field"
+                  outlined
+                  dense
+                />
+              </v-col>
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="sortDirection1"
+                  :items="sortDirectionOptions"
+                  item-title="text"
+                  item-value="value"
+                  label="Primary Direction"
+                  outlined
+                  dense
+                />
+              </v-col>
+            </v-row>
+            <v-row>
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="sortField2"
+                  :items="sortFieldOptions"
+                  item-title="text"
+                  item-value="value"
+                  label="Secondary Sort Field"
+                  outlined
+                  dense
+                />
+              </v-col>
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="sortDirection2"
+                  :items="sortDirectionOptions"
+                  item-title="text"
+                  item-value="value"
+                  label="Secondary Direction"
+                  outlined
+                  dense
+                />
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <v-row justify="center">
       <v-col cols="12" lg="10">
         <v-row>
@@ -222,7 +295,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Draggable from "vuedraggable";
 import {
@@ -257,6 +330,7 @@ const columns = ref([]);
 const tasksByColumn = ref({});
 
 const isMembersPanelExpanded = ref(false);
+const isSortPanelExpanded = ref(false);
 const isBoardOwner = ref(false);
 const boardOwnerEmail = ref(null);
 
@@ -271,9 +345,38 @@ const memberToRemoveName = ref("");
 
 const currentUserEmail = ref("");
 
+const sortFieldOptions = [
+  { text: "Title", value: "title" },
+  { text: "Created At", value: "createdAt" },
+  { text: "Order Index", value: "order" },
+];
+const sortDirectionOptions = [
+  { text: "Ascending", value: "asc" },
+  { text: "Descending", value: "desc" },
+];
+
+const sortField1 = ref("order");
+const sortDirection1 = ref("asc");
+const sortField2 = ref("title");
+const sortDirection2 = ref("asc");
+
 let unsubscribeBoard = null;
 let unsubscribeColumns = null;
 let columnTasksUnsubs = [];
+
+watch(
+  () => [
+    sortField1.value,
+    sortDirection1.value,
+    sortField2.value,
+    sortDirection2.value,
+  ],
+  () => {
+    for (const col of columns.value) {
+      tasksByColumn.value[col.id] = advancedSort(tasksByColumn.value[col.id]);
+    }
+  }
+);
 
 onMounted(async () => {
   try {
@@ -358,10 +461,13 @@ function watchTasksOfColumn(colId) {
     orderBy("order")
   );
   const unsub = onSnapshot(qTasks, (snap) => {
-    const tasks = snap.docs.map((doc) => ({
+    let tasks = snap.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
+
+    tasks = advancedSort(tasks);
+
     tasksByColumn.value[colId] = tasks;
   });
   columnTasksUnsubs.push(unsub);
@@ -380,10 +486,49 @@ async function initializeBoardListeners(boardId) {
   }
 }
 
+function advancedSort(taskArray) {
+  const sorted = [...taskArray];
+
+  sorted.sort((a, b) => {
+    const res1 = compareByField(a, b, sortField1.value, sortDirection1.value);
+    if (res1 !== 0) {
+      return res1;
+    }
+
+    const res2 = compareByField(a, b, sortField2.value, sortDirection2.value);
+    return res2;
+  });
+
+  return sorted;
+}
+
+function compareByField(a, b, field, direction) {
+  let valA = a[field];
+  let valB = b[field];
+
+  if (field === "createdAt" && valA && valB) {
+    if (valA.toDate) valA = valA.toDate().getTime();
+    if (valB.toDate) valB = valB.toDate().getTime();
+  }
+
+  if (typeof valA === "number" && typeof valB === "number") {
+    return direction === "asc" ? valA - valB : valB - valA;
+  }
+
+  const strA = String(valA).toLowerCase();
+  const strB = String(valB).toLowerCase();
+
+  if (strA < strB) return direction === "asc" ? -1 : 1;
+  if (strA > strB) return direction === "asc" ? 1 : -1;
+  return 0;
+}
+
 function toggleMembersPanel() {
   isMembersPanelExpanded.value = !isMembersPanelExpanded.value;
 }
-
+function toggleSortPanel() {
+  isSortPanelExpanded.value = !isSortPanelExpanded.value;
+}
 function openInviteDialog() {
   inviteDialogOpen.value = true;
 }
@@ -444,10 +589,13 @@ async function moveTask(task, oldColumnId, newColumnId) {
   try {
     await deleteTaskInColumnAPI(boardId, oldColumnId, task.id);
     const newOrder = tasksByColumn.value[newColumnId]?.length || 0;
-    await createTaskInColumn(boardId, newColumnId, {
+    const newDoc = await createTaskInColumn(boardId, newColumnId, {
       title: task.title,
       order: newOrder,
+      createdAt: task.createdAt || null,
     });
+
+    task.id = newDoc.id;
   } catch (err) {
     console.error("moveTask error:", err);
     showToast("Failed to move task.", "error");
@@ -467,12 +615,12 @@ async function onListChange(evt, columnId) {
       const newItem = tasksByColumn.value[columnId][newIndex];
       if (!newItem) return;
 
-      const result = await createTaskInColumn(boardId, columnId, {
+      const res = await createTaskInColumn(boardId, columnId, {
         title: newItem.title,
+        createdAt: newItem.createdAt || null,
         order: newIndex,
       });
-
-      newItem.id = result.id;
+      newItem.id = res.id;
 
       await reorderTasksInColumn(columnId);
     }
@@ -493,12 +641,15 @@ async function onListChange(evt, columnId) {
 async function reorderTasksInColumn(colId) {
   const tasks = tasksByColumn.value[colId];
   if (!tasks) return;
+
   for (let i = 0; i < tasks.length; i++) {
     if (tasks[i].order !== i) {
       tasks[i].order = i;
       await updateTaskInColumn(boardId, colId, tasks[i].id, { order: i });
     }
   }
+
+  tasksByColumn.value[colId] = advancedSort(tasksByColumn.value[colId]);
 }
 
 function openNewTaskDialog(columnId) {
@@ -513,12 +664,15 @@ function closeDialog() {
 
 async function createTask() {
   if (!newTaskTitle.value.trim() || !activeColumnId.value) return;
+
   const currentTasks = tasksByColumn.value[activeColumnId.value];
   const newOrder = currentTasks.length;
+
   try {
     await createTaskInColumn(boardId, activeColumnId.value, {
       title: newTaskTitle.value,
       order: newOrder,
+      createdAt: new Date(),
     });
     closeDialog();
   } catch (err) {
